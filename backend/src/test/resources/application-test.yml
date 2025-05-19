@@ -1,0 +1,19 @@
+spring:
+  r2dbc:
+    url: r2dbc:h2:mem:///testdb
+    username: sa
+    password: 
+  flyway:
+    enabled: true
+
+app:
+  database:
+    h2:
+      mode: mem
+      databaseName: testdb
+      username: sa
+      password: 
+    flyway:
+      locations:
+        - classpath:db/migration
+      baselineOnMigrate: true 

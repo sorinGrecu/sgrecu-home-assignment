@@ -1,0 +1,81 @@
+spring:
+  application:
+    name: sgrecu-home-assignment-backend
+  main:
+    allow-bean-definition-overriding: true
+    web-application-type: reactive
+  sql:
+    init:
+      mode: embedded
+  flyway:
+    enabled: true
+  profiles:
+    active: test
+  jackson:
+    default-property-inclusion: non-null
+    serialization:
+      write-dates-as-timestamps: false
+  data:
+    r2dbc:
+      repositories:
+        enabled: true
+
+# Logging configuration
+logging:
+  level:
+    org.springframework.security: INFO
+    com.sgrecu.homeassignment.security: DEBUG
+    org.springframework.web: INFO
+    org.springframework.test: INFO
+
+# Test-specific application configuration
+app:
+  # Security configuration for tests
+  security:
+    jwt:
+      # This is a test key, never use this in production!
+      secret-key: test-jwt-secret-key-for-unit-tests-only-must-be-at-least-32-chars-long
+      expiration: 3600000
+      issuer: sgrecu-home-assignment-backend-test
+      audience: sgrecu-home-assignment-backend-test-client
+      # SECURITY: Disabled by default. For test purposes we can override this in specific tests.
+      allow-token-query-parameter: false
+    oauth2:
+      google:
+        client-id: test-google-client-id
+  cors:
+    allowed-origins:
+      - http://localhost:3000
+      - http://localhost:8080
+    allowed-methods:
+      - GET
+      - POST
+      - PUT
+      - DELETE
+      - OPTIONS
+    max-age: 3600
+  # Database configuration for tests
+  database:
+    h2:
+      mode: mem
+      databaseName: testdb
+      username: sa
+      password: ""
+    flyway:
+      locations:
+        - classpath:db/migration
+      baselineOnMigrate: true
+
+# Test-specific endpoints
+# These are only available in the test profile
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+      group:
+        r2dbc:
+          include: r2dbc 

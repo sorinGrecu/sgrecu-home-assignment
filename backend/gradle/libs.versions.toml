@@ -1,0 +1,86 @@
+[versions]
+# Kotlin and plugins
+kotlin = "1.9.25"
+springBoot = "3.4.4"
+springDependencyManagement = "1.1.7"
+kotlinLogging = "3.0.5"
+
+# Spring AI
+springAi = "1.0.0-M6"
+
+# Database
+flyway = "11.8.0"
+
+# Security
+jwt = "0.11.5"
+googleApi = "2.7.2"
+
+# Monitoring
+micrometer = "1.12.2"
+
+# Testing
+mockk = "1.13.10"
+kotlinFixture = "1.2.0"
+pitest = "1.15.0"
+pitestJunit5 = "1.2.1"
+pitestKotlin = "1.9.0"
+mockitoKotlin = "4.1.0"
+
+[libraries]
+# Spring Boot & Kotlin
+spring-boot-starter-webflux = { group = "org.springframework.boot", name = "spring-boot-starter-webflux" }
+spring-boot-starter-test = { group = "org.springframework.boot", name = "spring-boot-starter-test" }
+spring-boot-starter-actuator = { group = "org.springframework.boot", name = "spring-boot-starter-actuator" }
+jackson-module-kotlin = { group = "com.fasterxml.jackson.module", name = "jackson-module-kotlin" }
+kotlin-reflect = { group = "org.jetbrains.kotlin", name = "kotlin-reflect" }
+reactor-kotlin-extensions = { group = "io.projectreactor.kotlin", name = "reactor-kotlin-extensions" }
+kotlinx-coroutines-reactor = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-reactor" }
+reactor-test = { group = "io.projectreactor", name = "reactor-test" }
+kotlin-test-junit5 = { group = "org.jetbrains.kotlin", name = "kotlin-test-junit5" }
+kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test" }
+junit-platform-launcher = { group = "org.junit.platform", name = "junit-platform-launcher" }
+mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
+kotlin-fixture = { group = "com.appmattus.fixture", name = "fixture", version.ref = "kotlinFixture" }
+kotlin-logging = { group = "io.github.microutils", name = "kotlin-logging-jvm", version.ref = "kotlinLogging" }
+
+# Monitoring
+micrometer-registry-prometheus = { group = "io.micrometer", name = "micrometer-registry-prometheus", version.ref = "micrometer" }
+
+# Spring AI
+spring-ai-ollama-starter = { group = "org.springframework.ai", name = "spring-ai-ollama-spring-boot-starter" }
+
+# Database
+spring-boot-starter-data-r2dbc = { group = "org.springframework.boot", name = "spring-boot-starter-data-r2dbc" }
+r2dbc-h2 = { group = "io.r2dbc", name = "r2dbc-h2" }
+spring-boot-starter-validation = { group = "org.springframework.boot", name = "spring-boot-starter-validation" }
+flyway-core = { group = "org.flywaydb", name = "flyway-core", version.ref = "flyway" }
+flyway-postgresql = { group = "org.flywaydb", name = "flyway-database-postgresql", version.ref = "flyway" }
+r2dbc-postgresql = { group = "org.postgresql", name = "r2dbc-postgresql" }
+postgresql = { group = "org.postgresql", name = "postgresql" }
+
+# Security
+spring-boot-starter-security = { group = "org.springframework.boot", name = "spring-boot-starter-security" }
+spring-boot-starter-oauth2-resource-server = { group = "org.springframework.boot", name = "spring-boot-starter-oauth2-resource-server" }
+spring-security-oauth2-jose = { group = "org.springframework.security", name = "spring-security-oauth2-jose" }
+jjwt-api = { group = "io.jsonwebtoken", name = "jjwt-api", version.ref = "jwt" }
+jjwt-impl = { group = "io.jsonwebtoken", name = "jjwt-impl", version.ref = "jwt" }
+jjwt-jackson = { group = "io.jsonwebtoken", name = "jjwt-jackson", version.ref = "jwt" }
+google-api-client = { group = "com.google.api-client", name = "google-api-client", version.ref = "googleApi" }
+
+# Testing plugins
+pitest = { group = "org.pitest", name = "pitest", version.ref = "pitest" }
+pitest-junit5 = { group = "org.pitest", name = "pitest-junit5-plugin", version.ref = "pitestJunit5" }
+pitest-kotlin = { group = "com.autonomousapps", name = "pitest-kotlin-plugin", version.ref = "pitestKotlin" }
+mockito-kotlin = { group = "org.mockito.kotlin", name = "mockito-kotlin", version.ref = "mockitoKotlin" }
+
+[plugins]
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+kotlin-spring = { id = "org.jetbrains.kotlin.plugin.spring", version.ref = "kotlin" }
+spring-boot = { id = "org.springframework.boot", version.ref = "springBoot" }
+spring-dependency-management = { id = "io.spring.dependency-management", version.ref = "springDependencyManagement" }
+pitest = { id = "info.solidsoft.pitest", version = "1.9.11" }
+
+[bundles]
+kotlin-base = ["kotlin-reflect", "kotlinx-coroutines-reactor", "reactor-kotlin-extensions", "jackson-module-kotlin", "kotlin-logging"]
+testing = ["spring-boot-starter-test", "reactor-test", "kotlin-test-junit5", "kotlinx-coroutines-test", "mockk", "kotlin-fixture"]
+pitest = ["pitest", "pitest-junit5", "pitest-kotlin"]

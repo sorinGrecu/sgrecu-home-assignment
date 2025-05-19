@@ -1,0 +1,135 @@
+spring:
+  application:
+    name: sgrecu-home-assignment-backend
+  data:
+    r2dbc:
+      repositories:
+        enabled: true
+  # Flyway basic configuration - specific details now moved to app.database section
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+  ai:
+    ollama:
+      base-url: ${JBHA_OLLAMA_URL}
+      chat:
+        options:
+          model: ${JBHA_AI_MODEL}
+          temperature: 0.7
+  main:
+    allow-bean-definition-overriding: true
+
+# Management (Actuator) configuration
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics,aiinfo,prometheus
+  endpoint:
+    health:
+      show-details: always
+      group:
+        r2dbc:
+          include: r2dbc
+  metrics:
+    distribution:
+      percentiles-histogram:
+        message.persistence.failures: true
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+
+# Application configuration
+app:
+  # Default save strategy (buffered or end-of-stream)
+  saveStrategy: end-of-stream
+  # CORS configuration
+  cors:
+    allowed-origins: ${JBHA_ALLOWED_ORIGINS}
+    allowed-methods:
+      - GET
+      - POST
+      - PUT
+      - DELETE
+      - OPTIONS
+    allowed-headers:
+      - "*"
+    exposed-headers:
+      - Authorization
+      - Content-Type
+    max-age: 3600
+    allow-credentials: true
+  # Security configuration
+  security:
+    jwt:
+      secret-key: ${JBHA_JWT_SECRET_KEY}
+      expiration: 86400000
+      issuer: sgrecu-home-assignment-backend
+      audience: sgrecu-home-assignment-backend
+      # SECURITY: Disabled by default. Only enable if absolutely necessary as tokens in query params are a security risk.
+      # Tokens in URLs can be logged in browser history, server logs, and proxy logs, and appear in Referer headers.
+      allow-token-query-parameter: false
+    oauth2:
+      google:
+        client-id: ${JBHA_GOOGLE_CLIENT_ID}
+  database:
+    # Common settings shared across databases
+    common:
+      host: ${JBHA_DB_HOST}
+      port: ${JBHA_DB_PORT}
+      database: ${JBHA_DB_NAME}
+      username: ${JBHA_DB_USERNAME}
+      password: ${JBHA_DB_PASSWORD}
+    # H2-specific settings
+    h2:
+      mode: file
+      databaseName: ./.data/chatdb
+      username: sgrecu-home-assignment-backend
+      password: ""
+    # Postgres-specific settings
+    postgres:
+      host: ${JBHA_DB_HOST}
+      port: ${JBHA_DB_PORT}
+      database: ${JBHA_DB_NAME}
+      username: ${JBHA_DB_USERNAME}
+      password: ${JBHA_DB_PASSWORD}
+      schema: ${JBHA_DB_SCHEMA}
+    # R2DBC connection settings
+    r2dbc:
+      poolEnabled: true
+      initialSize: 5
+      maxSize: 10
+      maxIdleTime: 30m
+      validationQuery: SELECT 1
+
+---
+# Development environment configuration (H2 file-based)
+spring:
+  config:
+    activate:
+      on-profile: dev
+
+---
+# Staging environment configuration (PostgreSQL)
+spring:
+  config:
+    activate:
+      on-profile: staging
+# Override CORS for staging
+app:
+  cors:
+    allowed-origins:
+      - https://staging.yourapp.com
+
+---
+# Production environment configuration (PostgreSQL)
+spring:
+  config:
+    activate:
+      on-profile: prod
+# Override CORS for production
+app:
+  cors:
+    allowed-origins: ${JBHA_ALLOWED_ORIGINS}
