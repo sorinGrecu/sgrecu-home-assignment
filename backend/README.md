@@ -6,7 +6,7 @@ Real-time chat & AI integration service written in **Kotlin** using **Spring Boo
 
 ## ⚙️ Tech stack
 
-• Kotlin 1.9 + Spring Boot 3.2  
+• Kotlin 1.9 + Spring Boot 3.4  
 • WebFlux (reactive REST & SSE streaming)  
 • R2DBC + Flyway (H2 for quick-run, PostgreSQL for prod)  
 • Spring Security ‑ JWT resource-server  
@@ -22,7 +22,7 @@ Real-time chat & AI integration service written in **Kotlin** using **Spring Boo
 ### 1. Via IDE (IntelliJ IDEA)
 
 1. Open this folder as a project.
-2. Copy `.env.example` → `.env` and tweak values. Make sure to complete the file with all required values.
+2. Copy `.env.example` → `.env` and configure all required values.
 3. Add the environment variables to your run configuration in IntelliJ IDEA.
 4. Run `HomeAssignmentApplication.kt`.
 5. Pick a Spring profile:  
@@ -34,11 +34,11 @@ Real-time chat & AI integration service written in **Kotlin** using **Spring Boo
 ```bash
 # First copy and configure environment variables
 cp .env.example .env
-# Edit .env with your values
+# Edit .env with your values (IMPORTANT: Google Client Secret from Sorin Grecu's email!)
 
 # Then run with desired profile
 ./gradlew bootRun --args="--spring.profiles.active=dev"    # H2 file database
-./gradlew bootRun --args="--spring.profiles.active=prod"    # PostgreSQL
+./gradlew bootRun --args="--spring.profiles.active=prod"   # PostgreSQL
 ```
 
 Production-grade JAR:
@@ -52,7 +52,12 @@ java -jar build/libs/home-assignment.jar --spring.profiles.active=prod
 
 ## 🔑 Environment variables (`.env`)
 
-Copy `.env.example` → `.env` and tweak values. Make sure to complete the file with all required values and add them when running from IntelliJ IDEA.
+Copy `.env.example` → `.env` and configure all required values. Make sure to:
+- Add the Google Client Secret from Sorin Grecu's email  
+- Configure database credentials if using PostgreSQL
+- Set JWT secret for token signing
+
+When running from IntelliJ IDEA, add these environment variables to your run configuration.
 
 ---
 

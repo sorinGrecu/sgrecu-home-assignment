@@ -28,7 +28,9 @@ React-based web client for the real-time chat app, built with **Next.js 15** and
    npm ci              # or pnpm i / yarn
    ```
 
-2. Copy `env.example` to `.env` (used by run.sh) or `.env.local` (picked up by `npm run dev`). Make sure to tweak and complete the file with all required values.
+2. Copy `env.example` to `.env` (used by run.sh) or `.env.local` (picked up by `npm run dev`). 
+   
+   **IMPORTANT:** Make sure to add the Google Client Secret from Sorin Grecu's email to make authentication work.
 
 3. Start the development server:
 

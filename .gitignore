@@ -13,6 +13,8 @@ Thumbs.db
 *.env
 */.env
 .env.local
+# --- Production environment -----------------------------------------
+.prod/
 
 # --- Node / Frontend ------------------------------------------------
 frontend/node_modules/

@@ -1,0 +1,106 @@
+version: "3.9"
+
+services:
+  postgres:
+    container_name: ${POSTGRES_CONTAINER_NAME:-jbha-postgres}
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${JBHA_DB_NAME:-homeassignment}
+      POSTGRES_USER: ${JBHA_DB_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${JBHA_DB_PASSWORD:-postgres}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${JBHA_DB_USERNAME:-postgres} -d ${JBHA_DB_NAME:-homeassignment}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  ollama:
+    container_name: ${OLLAMA_CONTAINER_NAME:-jbha-ollama}
+    build:
+      context: .
+      dockerfile: Dockerfile.ollama
+      no_cache: true
+    pull_policy: always
+    restart: unless-stopped
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    environment:
+      - OLLAMA_NUM_PARALLEL=${OLLAMA_NUM_PARALLEL:-4}
+      - OLLAMA_MAX_LOADED_MODELS=${OLLAMA_MAX_LOADED_MODELS:-2}
+      - OLLAMA_MODELS=/usr/share/ollama/.ollama/models
+      - AI_MODEL=${AI_MODEL:-gemma3:1b}
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:11434/api/tags"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    volumes:
+      - ollama-models:/usr/share/ollama/.ollama/models
+
+  backend:
+    container_name: ${BACKEND_CONTAINER_NAME:-jbha-backend}
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    environment:
+      JBHA_DB_HOST: ${JBHA_DB_HOST:-postgres}
+      JBHA_DB_PORT: ${JBHA_DB_PORT:-5432}
+      JBHA_DB_NAME: ${JBHA_DB_NAME:-homeassignment}
+      JBHA_DB_USERNAME: ${JBHA_DB_USERNAME:-postgres}
+      JBHA_DB_PASSWORD: ${JBHA_DB_PASSWORD:-postgres}
+      JBHA_DB_SCHEMA: ${JBHA_DB_SCHEMA:-public}
+      JBHA_OLLAMA_URL: ${JBHA_OLLAMA_URL:-http://ollama:11434}
+      JBHA_GOOGLE_CLIENT_ID: ${JBHA_GOOGLE_CLIENT_ID:-}
+      JBHA_GOOGLE_CLIENT_SECRET: ${JBHA_GOOGLE_CLIENT_SECRET:-changeme}
+      JBHA_JWT_SECRET_KEY: ${JBHA_JWT_SECRET_KEY:-${SHARED_SECRET:-changeme-shared-secret}}
+      JBHA_ALLOWED_ORIGINS: ${JBHA_ALLOWED_ORIGINS:-http://localhost:3000}
+      JBHA_AI_MODEL: ${AI_MODEL:-gemma3:1b}
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+      start_period: 45s
+    restart: unless-stopped
+
+  frontend:
+    container_name: ${FRONTEND_CONTAINER_NAME:-jbha-frontend}
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_BACKEND_URL: ${NEXT_PUBLIC_BACKEND_URL:-http://localhost:8080}
+        JBHA_GOOGLE_CLIENT_ID: ${JBHA_GOOGLE_CLIENT_ID:-}
+        NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
+    environment:
+      NEXT_PUBLIC_BACKEND_URL: ${NEXT_PUBLIC_BACKEND_URL:-http://localhost:8080}
+      BACKEND_INTERNAL_URL: ${BACKEND_INTERNAL_URL:-http://backend:8080}
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-${SHARED_SECRET:-changeme-shared-secret}}
+      JBHA_GOOGLE_CLIENT_ID: ${JBHA_GOOGLE_CLIENT_ID:-}
+      JBHA_GOOGLE_CLIENT_SECRET: ${JBHA_GOOGLE_CLIENT_SECRET:-changeme}
+      AUTH_TRUST_HOST: ${AUTH_TRUST_HOST:-true}
+      NODE_ENV: ${NODE_ENV:-development}
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    restart: unless-stopped
+
+volumes:
+  ollama-models:
+  postgres-data:

@@ -9,13 +9,15 @@ const nextConfig: NextConfig = {
         return config;
     },
     images: {
+        domains: ['lh3.googleusercontent.com'],
         remotePatterns: [
             {
                 protocol: 'https',
-                hostname: '*.googleusercontent.com',
+                hostname: 'lh3.googleusercontent.com',
                 pathname: '/**',
             }
-        ]
+        ],
+        unoptimized: true
     }
 };
 

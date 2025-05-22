@@ -56,43 +56,68 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
   
-  const token = await getToken({ 
-    req: request,
-    secret: NEXTAUTH_SECRET
-  });
-  
-  if (!token || isTokenExpired(token)) {
-    if (isStreamEndpoint(fullPath)) {
-      return new NextResponse(JSON.stringify({ error: 'Unauthorized - Session expired' }), {
-        status: 401,
-        headers: {
-          'Content-Type': 'application/json',
+  try {
+    const token = await getToken({ 
+      req: request,
+      secret: NEXTAUTH_SECRET,
+      secureCookie: process.env.NODE_ENV === 'production',
+      cookieName: 'next-auth.session-token'
+    });
+    
+    if (!token) {
+      if (isStreamEndpoint(fullPath)) {
+        return new NextResponse(JSON.stringify({ error: 'Unauthorized - Session expired' }), {
+          status: 401,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
+      }
+      
+      const response = NextResponse.redirect(new URL('/?error=session_expired', request.url));
+      
+      response.cookies.delete('next-auth.session-token');
+      response.cookies.delete('next-auth.csrf-token');
+      response.cookies.delete('next-auth.callback-url');
+      
+      return response;
+    }
+    
+    if (isTokenExpired(token)) {
+      if (isStreamEndpoint(fullPath)) {
+        return new NextResponse(JSON.stringify({ error: 'Unauthorized - Session expired' }), {
+          status: 401,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
+      }
+      
+      const response = NextResponse.redirect(new URL('/?error=session_expired', request.url));
+      
+      response.cookies.delete('next-auth.session-token');
+      response.cookies.delete('next-auth.csrf-token');
+      response.cookies.delete('next-auth.callback-url');
+      
+      return response;
+    }
+    
+    if ((path.startsWith('/api/') || path.startsWith('/stream/')) && token.backendToken) {
+      const requestHeaders = new Headers(request.headers);
+      requestHeaders.set('Authorization', `Bearer ${token.backendToken}`);
+      
+      return NextResponse.next({
+        request: {
+          headers: requestHeaders,
         },
       });
     }
     
-    const response = NextResponse.redirect(new URL('/?error=session_expired', request.url));
+    return NextResponse.next();
     
-    response.cookies.delete('next-auth.session-token');
-    response.cookies.delete('next-auth.csrf-token');
-    response.cookies.delete('next-auth.callback-url');
-    
-    return response;
+  } catch (error) {
+    return NextResponse.redirect(new URL('/?error=auth_error', request.url));
   }
-  
-  if ((path.startsWith('/api/') || path.startsWith('/stream/')) && token.backendToken) {
-    const requestHeaders = new Headers(request.headers);
-    
-    requestHeaders.set('Authorization', `Bearer ${token.backendToken}`);
-    
-    return NextResponse.next({
-      request: {
-        headers: requestHeaders,
-      },
-    });
-  }
-  
-  return NextResponse.next();
 }
 
 export const config = {

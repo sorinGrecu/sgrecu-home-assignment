@@ -3,8 +3,11 @@
  */
 import {clientEnv, env} from './env';
 
-export const BACKEND_URL = clientEnv.NEXT_PUBLIC_BACKEND_URL;
 const isServer = typeof window === 'undefined';
+
+export const BACKEND_URL = isServer && process.env.BACKEND_INTERNAL_URL 
+  ? process.env.BACKEND_INTERNAL_URL 
+  : clientEnv.NEXT_PUBLIC_BACKEND_URL;
 
 type ServerEnv = Record<string, string>;
 

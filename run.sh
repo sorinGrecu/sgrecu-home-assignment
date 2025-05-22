@@ -5,6 +5,13 @@
 # Usage: ./run.sh [--wizard] [--backend-only] [--frontend-only] [--quick-run]
 # Description: Configures and starts the project's backend and/or frontend components
 #
+# Features:
+# - Automatic dependency building (Gradle build for backend, npm install for frontend)
+# - Cross-platform Gradle wrapper support (gradlew/gradlew.bat)
+# - Environment configuration wizard
+# - Prerequisites checking (Java 21, Node.js 20+)
+# - Error handling with helpful troubleshooting tips
+#
 # Requires: bash, grep, openssl (or /dev/urandom), direnv (optional)
 #
 
@@ -45,10 +52,82 @@ log_success() {
   echo "$1"
 }
 
+check_prerequisites() {
+  log_info "Checking prerequisites..."
+  
+  local missing_prereqs=()
+  
+  if command -v java &>/dev/null; then
+    local java_version=$(java -version 2>&1 | head -n 1 | cut -d '"' -f 2 | cut -d '.' -f 1)
+    if [[ "$java_version" -ge 21 ]]; then
+      log_info "✓ Java $java_version found"
+    else
+      log_error "✗ Java 21 required, but found Java $java_version"
+      missing_prereqs+=("Java 21")
+    fi
+  else
+    log_error "✗ Java not found in PATH"
+    missing_prereqs+=("Java 21")
+  fi
+  
+  # Check Node.js 20+
+  if command -v node &>/dev/null; then
+    local node_version=$(node --version | sed 's/v//' | cut -d '.' -f 1)
+    if [[ "$node_version" -ge 20 ]]; then
+      log_info "✓ Node.js v$(node --version | sed 's/v//') found"
+    else
+      log_error "✗ Node.js 20+ required, but found v$(node --version | sed 's/v//')"
+      missing_prereqs+=("Node.js 20+")
+    fi
+  else
+    log_error "✗ Node.js not found in PATH"
+    missing_prereqs+=("Node.js 20+")
+  fi
+  
+  # Check npm (should come with Node.js)
+  if $RUN_FRONTEND && ! command -v npm &>/dev/null; then
+    log_error "✗ npm not found in PATH"
+    missing_prereqs+=("npm")
+  fi
+  
+  # Check if we're in a bash-compatible shell
+  if [[ -z "${BASH_VERSION:-}" ]]; then
+    log_error "✗ This script requires bash"
+    missing_prereqs+=("bash shell")
+  fi
+  
+  # If any prerequisites are missing, show help and exit
+  if [[ ${#missing_prereqs[@]} -gt 0 ]]; then
+    log_error ""
+    log_error "Missing prerequisites:"
+    for prereq in "${missing_prereqs[@]}"; do
+      log_error "  - $prereq"
+    done
+    log_error ""
+    log_error "Please install the missing prerequisites and try again."
+    log_error ""
+    log_error "Installation help:"
+    log_error "  Java 21: https://adoptium.net/ or use your system package manager"
+    log_error "  Node.js 20+: https://nodejs.org/ or use nvm (https://github.com/nvm-sh/nvm)"
+    log_error ""
+    log_error "Windows users: Make sure you're using WSL or Git Bash, not Command Prompt."
+    exit 1
+  fi
+  
+  log_success "✓ All prerequisites met!"
+  echo ""
+}
+
 # CLI Help
 usage() {
   cat <<EOF
 Usage: ./run.sh [--wizard] [--backend-only] [--frontend-only] [--quick-run]
+
+This script will automatically:
+  • Check prerequisites (Java 21, Node.js 20+)
+  • Configure environment variables (via wizard if needed)
+  • Build and install all dependencies (Gradle + npm/yarn/pnpm)
+  • Start the selected services
 
 Options:
   --wizard         Run the configuration wizard even if .env files exist
@@ -238,6 +317,94 @@ load_environment_variables() {
 # Service Management Functions
 PIDS=()
 
+# Build dependencies for backend and/or frontend
+build_dependencies() {
+  log_info "Building project dependencies..."
+  
+  if $RUN_BACKEND; then
+    log_info "Building backend dependencies and compiling Kotlin code..."
+    
+    if [[ ! -f "${BACKEND_DIR}/${ENV_FILE}" ]]; then
+      log_error "Backend ${ENV_FILE} file not found! Please run with --wizard flag first."
+      exit 2
+    fi
+    
+    (
+      cd "${BACKEND_DIR}"
+      load_env_in_subshell "${ENV_FILE}"
+      
+      # Determine correct Gradle wrapper script
+      GRADLE_WRAPPER="./gradlew"
+      if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "win32" || "$OSTYPE" == "cygwin" ]]; then
+        GRADLE_WRAPPER="./gradlew.bat"
+      fi
+      
+      # Make gradlew executable if it isn't already (common issue on Unix systems)
+      if [[ ! -x "./gradlew" && -f "./gradlew" ]]; then
+        chmod +x ./gradlew
+        log_info "Made gradlew executable"
+      fi
+      
+      # Build the project to download dependencies and compile
+      log_info "Running Gradle build to download dependencies and compile..."
+      $GRADLE_WRAPPER --console=plain build -x test -x pitest --no-daemon
+      
+      if [[ $? -ne 0 ]]; then
+        log_error "Backend build failed! Please check the error messages above."
+        log_error "Common issues:"
+        log_error "  - Ensure Java 21 is installed and JAVA_HOME is set correctly"
+        log_error "  - Check network connectivity for downloading dependencies"
+        log_error "  - Verify all environment variables are configured properly"
+        exit 3
+      fi
+    )
+    
+    log_success "✓ Backend dependencies built successfully"
+  fi
+  
+  if $RUN_FRONTEND; then
+    log_info "Installing frontend dependencies..."
+    
+    if [[ ! -f "${FRONTEND_DIR}/${ENV_FILE}" ]]; then
+      log_error "Frontend ${ENV_FILE} file not found! Please run with --wizard flag first."
+      exit 2
+    fi
+    
+    # Detect package manager
+    PKG_MANAGER="npm"
+    if [ -f "${FRONTEND_DIR}/yarn.lock" ]; then
+      PKG_MANAGER="yarn"
+    elif [ -f "${FRONTEND_DIR}/pnpm-lock.yaml" ]; then
+      PKG_MANAGER="pnpm"
+    fi
+    
+    log_info "Using ${PKG_MANAGER} as package manager..."
+    
+    (
+      cd "${FRONTEND_DIR}"
+      load_env_in_subshell "${ENV_FILE}"
+      
+      # Install dependencies
+      log_info "Installing Node.js dependencies..."
+      ${PKG_MANAGER} install
+      
+      if [[ $? -ne 0 ]]; then
+        log_error "Frontend dependency installation failed! Please check the error messages above."
+        log_error "Common issues:"
+        log_error "  - Ensure Node.js 20+ is installed"
+        log_error "  - Check network connectivity for downloading packages"
+        log_error "  - Try clearing npm cache: npm cache clean --force"
+        exit 3
+      fi
+    )
+    
+    log_success "✓ Frontend dependencies installed successfully"
+  fi
+  
+  log_success "✓ All dependencies built successfully"
+  echo ""
+}
+
 # Load environment variables in a subshell
 load_env_in_subshell() {
   local env_file="$1"
@@ -258,11 +425,6 @@ load_env_in_subshell() {
 start_backend() {
   log_info "Starting backend..."
   
-  if [[ ! -f "${BACKEND_DIR}/${ENV_FILE}" ]]; then
-    log_error "Backend ${ENV_FILE} file not found! Please run with --wizard flag first."
-    exit 2
-  fi
-  
   local profile="prod"
   if $QUICK_RUN; then
     log_info "Starting in dev mode with file-based H2 database for persistence..."
@@ -274,7 +436,15 @@ start_backend() {
   (
     cd "${BACKEND_DIR}"
     load_env_in_subshell "${ENV_FILE}"
-    ./gradlew --console=plain bootRun --args="--spring.profiles.active=${profile} --logging.level.root=INFO"
+    
+    # Determine correct Gradle wrapper script
+    GRADLE_WRAPPER="./gradlew"
+    if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "win32" || "$OSTYPE" == "cygwin" ]]; then
+      GRADLE_WRAPPER="./gradlew.bat"
+    fi
+    
+    # Run the application (dependencies already built)
+    $GRADLE_WRAPPER --console=plain bootRun --args="--spring.profiles.active=${profile} --logging.level.root=INFO" --no-daemon
   ) &
   
   PIDS+=($!)
@@ -284,12 +454,7 @@ start_backend() {
 start_frontend() {
   log_info "Starting frontend..."
   
-  if [[ ! -f "${FRONTEND_DIR}/${ENV_FILE}" ]]; then
-    log_error "Frontend ${ENV_FILE} file not found! Please run with --wizard flag first."
-    exit 2
-  fi
-  
-  # Detect package manager
+  # Detect package manager (already done in build_dependencies, but keeping for safety)
   PKG_MANAGER="npm"
   if [ -f "${FRONTEND_DIR}/yarn.lock" ]; then
     PKG_MANAGER="yarn"
@@ -308,7 +473,9 @@ start_frontend() {
       log_info "Setting default NEXT_PUBLIC_BACKEND_URL to http://localhost:8080"
     fi
     
-    ${PKG_MANAGER} install && ${PKG_MANAGER} run build && ${PKG_MANAGER} start
+    # Build and start (dependencies already installed)
+    log_info "Building and starting frontend..."
+    ${PKG_MANAGER} run build && ${PKG_MANAGER} start
   ) &
   
   PIDS+=($!)
@@ -332,8 +499,10 @@ start_services() {
 # Main Function
 main() {
   parse_flags "$@"
+  check_prerequisites
   determine_configuration
   load_environment_variables
+  build_dependencies
   setup_signal_handlers
   start_services
   
