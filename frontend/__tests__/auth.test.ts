@@ -1,5 +1,16 @@
 import {beforeEach, describe, expect, it, jest} from '@jest/globals';
-import {BACKEND_URL} from '@/lib/config';
+
+jest.mock('@/lib/env', () => ({
+    clientEnv: {
+        NEXT_PUBLIC_BACKEND_URL: 'http://localhost:8080',
+    },
+    env: {
+        JBHA_GOOGLE_CLIENT_ID: 'mock-client-id',
+        JBHA_GOOGLE_CLIENT_SECRET: 'mock-client-secret',
+        NEXTAUTH_SECRET: 'mock-secret',
+        NODE_ENV: 'test'
+    }
+}));
 
 jest.mock('@/lib/config', () => ({
     BACKEND_URL: 'http://localhost:8080',
@@ -7,6 +18,8 @@ jest.mock('@/lib/config', () => ({
     JBHA_GOOGLE_CLIENT_SECRET: 'mock-client-secret',
     NEXTAUTH_SECRET: 'mock-secret'
 }));
+
+const BACKEND_URL = 'http://localhost:8080';
 
 const mockDebug = jest.fn();
 const mockError = jest.fn();
@@ -48,7 +61,8 @@ jest.mock('@/app/auth', () => {
                                     mockDebug('Exchanged Google token for JWT');
                                     return {...token, backendToken: data.accessToken};
                                 } else {
-                                    throw new Error(`HTTP error: ${response.status}`);
+                                    mockError("Failed to exchange Google token for JWT:", new Error(`HTTP error: ${response.status}`));
+                                    return token;
                                 }
                             } catch (error) {
                                 mockError("Failed to exchange Google token for JWT:", error);

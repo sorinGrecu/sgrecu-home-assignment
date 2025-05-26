@@ -47,6 +47,11 @@ describe('AuthStateWrapper', () => {
     it('redirects authenticated users from public routes to /chat', async () => {
         (useSession as jest.Mock).mockReturnValue({
             status: 'authenticated',
+            data: {
+                backendToken: 'mock-token',
+                user: { id: 'test-user', name: 'Test User', email: 'test@example.com' },
+                expires: '2100-01-01T00:00:00.000Z'
+            }
         });
 
         (usePathname as jest.Mock).mockReturnValue('/');
@@ -83,6 +88,11 @@ describe('AuthStateWrapper', () => {
     it('renders children when user is authenticated and on a protected route', () => {
         (useSession as jest.Mock).mockReturnValue({
             status: 'authenticated',
+            data: {
+                backendToken: 'mock-token',
+                user: { id: 'test-user', name: 'Test User', email: 'test@example.com' },
+                expires: '2100-01-01T00:00:00.000Z'
+            }
         });
 
         (usePathname as jest.Mock).mockReturnValue('/chat');
@@ -113,6 +123,11 @@ describe('AuthStateWrapper', () => {
     it('treats API auth routes as public routes', () => {
         (useSession as jest.Mock).mockReturnValue({
             status: 'authenticated',
+            data: {
+                backendToken: 'mock-token',
+                user: { id: 'test-user', name: 'Test User', email: 'test@example.com' },
+                expires: '2100-01-01T00:00:00.000Z'
+            }
         });
 
         (usePathname as jest.Mock).mockReturnValue('/api/auth/callback');
@@ -126,5 +141,27 @@ describe('AuthStateWrapper', () => {
 
         expect(screen.getByTestId('loading-spinner')).toBeInTheDocument();
         expect(mockRouter.push).toHaveBeenCalledWith('/chat');
+    });
+
+    it('redirects authenticated users without backend token to home with error', () => {
+        (useSession as jest.Mock).mockReturnValue({
+            status: 'authenticated',
+            data: {
+                user: { id: 'test-user', name: 'Test User', email: 'test@example.com' },
+                expires: '2100-01-01T00:00:00.000Z'
+            }
+        });
+
+        (usePathname as jest.Mock).mockReturnValue('/chat');
+
+        const mockRouter = {push: jest.fn()};
+        (useRouter as jest.Mock).mockReturnValue(mockRouter);
+
+        render(<AuthStateWrapper>
+            <div data-testid="child-content">Protected content</div>
+        </AuthStateWrapper>);
+
+        expect(screen.getByTestId('loading-spinner')).toBeInTheDocument();
+        expect(mockRouter.push).toHaveBeenCalledWith('/?error=session_expired');
     });
 }); 
