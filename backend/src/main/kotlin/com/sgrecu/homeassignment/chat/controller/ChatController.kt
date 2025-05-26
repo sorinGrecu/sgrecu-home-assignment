@@ -3,7 +3,6 @@ package com.sgrecu.homeassignment.chat.controller
 import com.sgrecu.homeassignment.chat.model.ChatResponseChunk
 import com.sgrecu.homeassignment.chat.service.ChatCoordinator
 import com.sgrecu.homeassignment.security.model.UserPrincipal
-import jakarta.validation.constraints.Size
 import org.springframework.http.MediaType
 import org.springframework.http.codec.ServerSentEvent
 import org.springframework.security.core.annotation.AuthenticationPrincipal
@@ -42,7 +41,7 @@ class ChatController(
      */
     @GetMapping(path = ["/stream"], produces = [MediaType.TEXT_EVENT_STREAM_VALUE])
     fun streamChat(
-        @RequestParam("message") @Size(min = 1, max = 4000) userQuery: String,
+        @RequestParam("message") userQuery: String,
         @RequestParam("conversationId", required = false) conversationId: String?,
         @AuthenticationPrincipal principal: UserPrincipal
     ): Flux<ServerSentEvent<ChatResponseChunk>> {

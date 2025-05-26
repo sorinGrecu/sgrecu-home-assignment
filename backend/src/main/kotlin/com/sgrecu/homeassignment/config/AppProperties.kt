@@ -12,11 +12,17 @@ import org.springframework.validation.annotation.Validated
 @ConfigurationProperties(prefix = "app")
 @Validated
 data class AppProperties(
-    /**
-     * The message save strategy to use.
-     * Supported values: "end-of-stream"
-     */
     @field:NotBlank @field:Pattern(
         regexp = "end-of-stream", message = "Save strategy must be either 'end-of-stream' or a future implementation"
-    ) val saveStrategy: String = "end-of-stream"
+    ) val saveStrategy: String = "end-of-stream",
+    val chat: ChatProperties = ChatProperties(),
+    val server: ServerProperties = ServerProperties()
+)
+
+data class ChatProperties(
+    val maxMessageLength: Int = 16000
+)
+
+data class ServerProperties(
+    val maxInitialLineLength: Int = 16384, val maxHeaderSize: Int = 16384
 )

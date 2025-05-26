@@ -3,6 +3,8 @@ package com.sgrecu.homeassignment.chat.service
 import com.sgrecu.homeassignment.chat.exception.AIResponseFailedException
 import com.sgrecu.homeassignment.chat.model.Conversation
 import com.sgrecu.homeassignment.chat.model.MessageRoleEnum
+import com.sgrecu.homeassignment.config.AppProperties
+import com.sgrecu.homeassignment.config.ChatProperties
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -21,6 +23,7 @@ class ChatCoordinatorTest {
     private lateinit var aiTransport: AITransport
     private lateinit var conversationService: ConversationService
     private lateinit var messagePersister: MessagePersister
+    private lateinit var appProperties: AppProperties
     private lateinit var chatCoordinator: ChatCoordinator
 
     private val userId = "user-123"
@@ -42,7 +45,10 @@ class ChatCoordinatorTest {
         aiTransport = mockk()
         conversationService = mockk()
         messagePersister = mockk()
-        chatCoordinator = ChatCoordinator(aiTransport, conversationService, messagePersister)
+        appProperties = AppProperties(
+            saveStrategy = "end-of-stream", chat = ChatProperties(maxMessageLength = 16000)
+        )
+        chatCoordinator = ChatCoordinator(aiTransport, conversationService, messagePersister, appProperties)
 
         StepVerifier.setDefaultTimeout(Duration.ofSeconds(10))
     }
@@ -423,5 +429,67 @@ class ChatCoordinatorTest {
 
         StepVerifier.create(responsePublisher.flux()).expectSubscription().expectNoEvent(Duration.ofMillis(100))
             .thenCancel().verify()
+    }
+
+    @Test
+    fun `streamChat throws exception when message is blank`() {
+        // Given
+        val blankMessage = "   "
+
+        // When & Then
+        StepVerifier.create(chatCoordinator.streamChat(blankMessage, null, userId)).expectErrorMatches { error ->
+            error is IllegalArgumentException && error.message == "Message cannot be empty"
+        }.verify()
+    }
+
+    @Test
+    fun `streamChat throws exception when message is empty`() {
+        // Given
+        val emptyMessage = ""
+
+        // When & Then
+        StepVerifier.create(chatCoordinator.streamChat(emptyMessage, null, userId)).expectErrorMatches { error ->
+            error is IllegalArgumentException && error.message == "Message cannot be empty"
+        }.verify()
+    }
+
+    @Test
+    fun `streamChat throws exception when message exceeds max length`() {
+        // Given
+        val longMessage = "A".repeat(16001)
+
+        // When & Then
+        StepVerifier.create(chatCoordinator.streamChat(longMessage, null, userId)).expectErrorMatches { error ->
+            error is IllegalArgumentException && error.message == "Message length exceeds maximum allowed length of 16000 characters"
+        }.verify()
+    }
+
+    @Test
+    fun `streamChat accepts message at max length`() {
+        // Given
+        val maxLengthMessage = "A".repeat(16000)
+        val title = "A".repeat(30) + "..."
+
+        every { conversationService.findOrCreateConversation(null, userId, title) } returns Mono.just(newConversation)
+        every {
+            conversationService.addMessageInternal(
+                newConversationId, MessageRoleEnum.USER, maxLengthMessage
+            )
+        } returns Mono.empty()
+
+        val responsePublisher = TestPublisher.create<String>()
+        every {
+            aiTransport.createFilteredResponseStream(
+                maxLengthMessage, newConversationId
+            )
+        } returns responsePublisher.flux()
+        every { messagePersister.saveMessage(any(), newConversationId, MessageRoleEnum.ASSISTANT) } returns Mono.empty()
+
+        // When
+        val result = chatCoordinator.streamChat(maxLengthMessage, null, userId)
+
+        // Then
+        StepVerifier.create(result).then { responsePublisher.emit("Response") }.expectNextCount(1)
+            .then { responsePublisher.complete() }.verifyComplete()
     }
 } 
