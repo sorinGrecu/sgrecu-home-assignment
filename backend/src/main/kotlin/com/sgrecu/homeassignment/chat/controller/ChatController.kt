@@ -6,11 +6,18 @@ import com.sgrecu.homeassignment.security.model.UserPrincipal
 import org.springframework.http.MediaType
 import org.springframework.http.codec.ServerSentEvent
 import org.springframework.security.core.annotation.AuthenticationPrincipal
-import org.springframework.web.bind.annotation.GetMapping
+import org.springframework.web.bind.annotation.PostMapping
+import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
-import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import reactor.core.publisher.Flux
+
+/**
+ * Request body for chat streaming endpoint
+ */
+data class ChatStreamRequest(
+    val message: String, val conversationId: String? = null
+)
 
 /**
  * Controller for chat interactions with the AI model.
@@ -30,21 +37,24 @@ class ChatController(
 ) {
 
     /**
-     * Endpoint for streaming chat responses.
+     * Endpoint for streaming chat responses via POST request.
      * Uses Server-Sent Events (SSE) to stream the AI responses back to the client.
      *
-     * @param userQuery The user's message to the AI (must be between 1 and 4000 characters)
-     * @param conversationId Optional ID to continue an existing conversation. If null, a new conversation will be created.
+     * POST is more appropriate for chat messages as:
+     * - Message content can be large and complex
+     * - Avoids URL length limitations
+     * - Better security (no sensitive data in URL/logs)
+     * - Supports structured request bodies
+     *
+     * @param request The chat request containing message and optional conversation ID
      * @param principal The authenticated user principal containing user identity information
      * @return A reactive stream of chat response chunks formatted as Server-Sent Events,
      *         where each chunk contains a portion of the AI's response
      */
-    @GetMapping(path = ["/stream"], produces = [MediaType.TEXT_EVENT_STREAM_VALUE])
+    @PostMapping(path = ["/stream"], produces = [MediaType.TEXT_EVENT_STREAM_VALUE])
     fun streamChat(
-        @RequestParam("message") userQuery: String,
-        @RequestParam("conversationId", required = false) conversationId: String?,
-        @AuthenticationPrincipal principal: UserPrincipal
+        @RequestBody request: ChatStreamRequest, @AuthenticationPrincipal principal: UserPrincipal
     ): Flux<ServerSentEvent<ChatResponseChunk>> {
-        return chatCoordinator.streamChat(userQuery, conversationId, principal.getUserId())
+        return chatCoordinator.streamChat(request.message, request.conversationId, principal.getUserId())
     }
 }

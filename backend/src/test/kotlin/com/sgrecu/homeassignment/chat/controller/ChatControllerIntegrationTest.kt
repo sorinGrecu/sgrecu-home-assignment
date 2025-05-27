@@ -26,6 +26,9 @@ import org.springframework.test.web.reactive.server.WebTestClient
 import org.springframework.test.web.reactive.server.expectBodyList
 import reactor.core.publisher.Flux
 import java.util.*
+import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 
 private const val MOCK_USER_EXTERNAL_ID = "test-user-external-id-123"
 
@@ -60,6 +63,7 @@ class ChatControllerIntegrationTest {
     @WithMockUserPrincipal(externalId = MOCK_USER_EXTERNAL_ID)
     fun `streamChat with message and no conversationId should return SSE stream`() {
         val userQuery = "Hello AI"
+        val requestBody = ChatStreamRequest(message = userQuery, conversationId = null)
         val conversationUuidForChunks = UUID.randomUUID()
 
         val chunk1 = ChatResponseChunk(conversationId = conversationUuidForChunks.toString(), content = "AI says:")
@@ -73,18 +77,17 @@ class ChatControllerIntegrationTest {
             )
         } returns Flux.just(sseEvent1, sseEvent2)
 
-        webTestClient.get().uri { uriBuilder ->
-            uriBuilder.path("/api/chat/stream").queryParam("message", userQuery).build()
-        }.accept(MediaType.TEXT_EVENT_STREAM).exchange().expectStatus().isOk.expectHeader()
+        webTestClient.post().uri("/api/chat/stream").contentType(MediaType.APPLICATION_JSON).bodyValue(requestBody)
+            .accept(MediaType.TEXT_EVENT_STREAM).exchange().expectStatus().isOk.expectHeader()
             .contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM).expectBodyList<ChatResponseChunk>()
             .consumeWith<WebTestClient.ListBodySpec<ChatResponseChunk>> { result ->
                 val chunks = result.responseBody
-                kotlin.test.assertNotNull(chunks)
-                kotlin.test.assertEquals(2, chunks.size)
-                kotlin.test.assertEquals(chunk1.content, chunks[0].content)
-                kotlin.test.assertEquals(chunk1.conversationId, chunks[0].conversationId)
-                kotlin.test.assertEquals(chunk2.content, chunks[1].content)
-                kotlin.test.assertEquals(chunk2.conversationId, chunks[1].conversationId)
+                assertNotNull(chunks)
+                assertEquals(2, chunks.size)
+                assertEquals(chunk1.content, chunks[0].content)
+                assertEquals(chunk1.conversationId, chunks[0].conversationId)
+                assertEquals(chunk2.content, chunks[1].content)
+                assertEquals(chunk2.conversationId, chunks[1].conversationId)
             }
     }
 
@@ -93,6 +96,7 @@ class ChatControllerIntegrationTest {
     fun `streamChat with message and conversationId should return SSE stream`() {
         val userQuery = "Tell me more"
         val conversationIdParam = UUID.randomUUID().toString()
+        val requestBody = ChatStreamRequest(message = userQuery, conversationId = conversationIdParam)
 
         val chunk1 = ChatResponseChunk(conversationId = conversationIdParam, content = "Okay,")
         val chunk2 = ChatResponseChunk(conversationId = conversationIdParam, content = " what do you want to know?")
@@ -105,10 +109,8 @@ class ChatControllerIntegrationTest {
             )
         } returns Flux.just(sseEvent1, sseEvent2)
 
-        webTestClient.get().uri { uriBuilder ->
-            uriBuilder.path("/api/chat/stream").queryParam("message", userQuery)
-                .queryParam("conversationId", conversationIdParam).build()
-        }.accept(MediaType.TEXT_EVENT_STREAM).exchange().expectStatus().isOk.expectHeader()
+        webTestClient.post().uri("/api/chat/stream").contentType(MediaType.APPLICATION_JSON).bodyValue(requestBody)
+            .accept(MediaType.TEXT_EVENT_STREAM).exchange().expectStatus().isOk.expectHeader()
             .contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM).expectBodyList<ChatResponseChunk>().hasSize(2)
             .contains(chunk1, chunk2)
     }
@@ -118,6 +120,7 @@ class ChatControllerIntegrationTest {
     fun `streamChat when coordinator returns empty flux should return empty SSE stream`() {
         val userQuery = "Anything new?"
         val conversationIdParam = UUID.randomUUID().toString()
+        val requestBody = ChatStreamRequest(message = userQuery, conversationId = conversationIdParam)
 
         every {
             testMockBeansConfig.chatCoordinatorMock.streamChat(
@@ -125,10 +128,8 @@ class ChatControllerIntegrationTest {
             )
         } returns Flux.empty()
 
-        webTestClient.get().uri { uriBuilder ->
-            uriBuilder.path("/api/chat/stream").queryParam("message", userQuery)
-                .queryParam("conversationId", conversationIdParam).build()
-        }.accept(MediaType.TEXT_EVENT_STREAM).exchange().expectStatus().isOk.expectHeader()
+        webTestClient.post().uri("/api/chat/stream").contentType(MediaType.APPLICATION_JSON).bodyValue(requestBody)
+            .accept(MediaType.TEXT_EVENT_STREAM).exchange().expectStatus().isOk.expectHeader()
             .contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM).expectBodyList<ChatResponseChunk>().hasSize(0)
     }
 
@@ -136,6 +137,7 @@ class ChatControllerIntegrationTest {
     @WithMockUserPrincipal(externalId = MOCK_USER_EXTERNAL_ID)
     fun `streamChat when coordinator returns an error event should propagate it`() {
         val userQuery = "This might fail"
+        val requestBody = ChatStreamRequest(message = userQuery, conversationId = null)
         val conversationUuidForError = UUID.randomUUID()
         val errorMessage = "A critical error occurred in AI"
 
@@ -147,16 +149,58 @@ class ChatControllerIntegrationTest {
             )
         } returns Flux.just(errorSseEvent)
 
-        webTestClient.get().uri { uriBuilder ->
-            uriBuilder.path("/api/chat/stream").queryParam("message", userQuery).build()
-        }.accept(MediaType.TEXT_EVENT_STREAM).exchange().expectStatus().isOk.expectHeader()
+        webTestClient.post().uri("/api/chat/stream").contentType(MediaType.APPLICATION_JSON).bodyValue(requestBody)
+            .accept(MediaType.TEXT_EVENT_STREAM).exchange().expectStatus().isOk.expectHeader()
             .contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM).expectBodyList<ChatResponseChunk>()
             .consumeWith<WebTestClient.ListBodySpec<ChatResponseChunk>> { result ->
                 val chunks = result.responseBody
-                kotlin.test.assertNotNull(chunks)
-                kotlin.test.assertEquals(1, chunks.size)
-                kotlin.test.assertEquals(conversationUuidForError.toString(), chunks[0].conversationId)
-                kotlin.test.assertTrue(chunks[0].content.contains(errorMessage))
+                assertNotNull(chunks)
+                assertEquals(1, chunks.size)
+                assertEquals(conversationUuidForError.toString(), chunks[0].conversationId)
+                assertTrue(chunks[0].content.contains(errorMessage))
             }
+    }
+
+    @Test
+    @WithMockUserPrincipal(externalId = MOCK_USER_EXTERNAL_ID)
+    fun `streamChat with invalid JSON should return bad request`() {
+        webTestClient.post().uri("/api/chat/stream").contentType(MediaType.APPLICATION_JSON)
+            .bodyValue("{\"invalid\": \"json\"}").accept(MediaType.TEXT_EVENT_STREAM).exchange()
+            .expectStatus().isBadRequest
+    }
+
+    @Test
+    @WithMockUserPrincipal(externalId = MOCK_USER_EXTERNAL_ID)
+    fun `streamChat with missing message field should return bad request`() {
+        webTestClient.post().uri("/api/chat/stream").contentType(MediaType.APPLICATION_JSON)
+            .bodyValue("{\"conversationId\": \"test-123\"}").accept(MediaType.TEXT_EVENT_STREAM).exchange()
+            .expectStatus().isBadRequest
+    }
+
+    @Test
+    @WithMockUserPrincipal(externalId = MOCK_USER_EXTERNAL_ID)
+    fun `streamChat should pass request parameters correctly to coordinator`() {
+        val userQuery = "Test message for parameter verification"
+        val conversationId = "test-conversation-123"
+        val requestBody = ChatStreamRequest(message = userQuery, conversationId = conversationId)
+
+        val chunk = ChatResponseChunk(conversationId = conversationId, content = "Response")
+        val sseEvent = ServerSentEvent.builder<ChatResponseChunk>().id("1").event("message").data(chunk).build()
+
+        every {
+            testMockBeansConfig.chatCoordinatorMock.streamChat(
+                userQuery, conversationId, MOCK_USER_EXTERNAL_ID
+            )
+        } returns Flux.just(sseEvent)
+
+        webTestClient.post().uri("/api/chat/stream").contentType(MediaType.APPLICATION_JSON).bodyValue(requestBody)
+            .accept(MediaType.TEXT_EVENT_STREAM).exchange().expectStatus().isOk.expectHeader()
+            .contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM)
+
+        io.mockk.verify {
+            testMockBeansConfig.chatCoordinatorMock.streamChat(
+                userQuery, conversationId, MOCK_USER_EXTERNAL_ID
+            )
+        }
     }
 }

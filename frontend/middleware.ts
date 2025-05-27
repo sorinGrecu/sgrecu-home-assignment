@@ -1,54 +1,110 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { getToken } from 'next-auth/jwt';
+import { getToken, JWT } from 'next-auth/jwt';
 import { NEXTAUTH_SECRET } from '@/lib/config';
 
-const publicPaths = [
+const PUBLIC_PATHS = [
   '/', 
   '/api/auth',
   '/login',
   '/api/auth/google',
-  '/api/chat/stream'
-];
+] as const;
 
-const streamEndpoints = [
+const STREAM_ENDPOINTS = [
   '/api/chat/stream'
-];
+] as const;
+
+const COOKIE_NAMES = {
+  SESSION: 'next-auth.session-token',
+  CSRF: 'next-auth.csrf-token',
+  CALLBACK: 'next-auth.callback-url',
+} as const;
+
+const ERROR_MESSAGES = {
+  SESSION_EXPIRED: 'Unauthorized - Session expired',
+  AUTH_ERROR: 'Authentication error',
+} as const;
+
+const ERROR_PARAMS = {
+  SESSION_EXPIRED: 'session_expired',
+  AUTH_ERROR: 'auth_error',
+} as const;
 
 /**
  * Check if a route is public (doesn't require authentication)
  */
 function isPublicRoute(path: string): boolean {
-  return publicPaths.some(publicPath => 
+  return PUBLIC_PATHS.some(publicPath => 
     path === publicPath || path.startsWith(`${publicPath}/`) || path.startsWith(`${publicPath}?`)
   );
 }
 
 /**
- * Check if a route is a stream endpoint
+ * Check if a route is a streaming endpoint
  */
 function isStreamEndpoint(path: string): boolean {
-  return streamEndpoints.some(streamPath => 
-    path === streamPath || path.startsWith(`${streamPath}/`) || path.startsWith(`${streamPath}?`)
-  ) || path.startsWith('/stream/');
+  return STREAM_ENDPOINTS.some(endpoint => path.startsWith(endpoint));
 }
 
 /**
- * Check if token is expired or about to expire
+ * Check if a JWT token is expired
  */
-function isTokenExpired(token: any): boolean {
-  if (!token?.exp) return false;
+function isTokenExpired(token: JWT): boolean {
+  if (!token.exp) return false;
+  return Date.now() >= token.exp * 1000;
+}
+
+/**
+ * Create a JSON error response for streaming endpoints
+ */
+function createJsonErrorResponse(message: string, status: number): NextResponse {
+  return new NextResponse(JSON.stringify({ error: message }), {
+    status,
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  });
+}
+
+/**
+ * Create a redirect response with cleaned cookies
+ */
+function createRedirectWithCleanup(request: NextRequest, errorParam: string): NextResponse {
+  const response = NextResponse.redirect(new URL(`/?error=${errorParam}`, request.url));
   
-  const expiryTime = token.exp * 1000;
-  const currentTime = Date.now();
+  Object.values(COOKIE_NAMES).forEach(cookieName => {
+    response.cookies.delete(cookieName);
+  });
   
-  return currentTime > expiryTime - 60000;
+  return response;
+}
+
+/**
+ * Handle unauthorized access (missing or invalid token)
+ */
+function handleUnauthorized(request: NextRequest, fullPath: string): NextResponse {
+  if (isStreamEndpoint(fullPath)) {
+    return createJsonErrorResponse(ERROR_MESSAGES.SESSION_EXPIRED, 401);
+  }
+  
+  return createRedirectWithCleanup(request, ERROR_PARAMS.SESSION_EXPIRED);
+}
+
+/**
+ * Handle authentication errors (exceptions during token validation)
+ */
+function handleAuthError(request: NextRequest, fullPath: string): NextResponse {
+  if (isStreamEndpoint(fullPath)) {
+    return createJsonErrorResponse(ERROR_MESSAGES.AUTH_ERROR, 500);
+  }
+  
+  return createRedirectWithCleanup(request, ERROR_PARAMS.AUTH_ERROR);
 }
 
 /**
  * Middleware function that runs before each request
  */
-export async function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest): Promise<NextResponse> {
   const path = request.nextUrl.pathname;
   const fullPath = path + request.nextUrl.search;
   
@@ -61,74 +117,26 @@ export async function middleware(request: NextRequest) {
       req: request,
       secret: NEXTAUTH_SECRET,
       secureCookie: process.env.NODE_ENV === 'production',
-      cookieName: 'next-auth.session-token'
+      cookieName: COOKIE_NAMES.SESSION,
     });
     
     if (!token) {
-      if (isStreamEndpoint(fullPath)) {
-        return new NextResponse(JSON.stringify({ error: 'Unauthorized - Session expired' }), {
-          status: 401,
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        });
-      }
-      
-      const response = NextResponse.redirect(new URL('/?error=session_expired', request.url));
-      
-      response.cookies.delete('next-auth.session-token');
-      response.cookies.delete('next-auth.csrf-token');
-      response.cookies.delete('next-auth.callback-url');
-      
-      return response;
+      return handleUnauthorized(request, fullPath);
     }
     
     if (isTokenExpired(token)) {
-      if (isStreamEndpoint(fullPath)) {
-        return new NextResponse(JSON.stringify({ error: 'Unauthorized - Session expired' }), {
-          status: 401,
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        });
-      }
-      
-      const response = NextResponse.redirect(new URL('/?error=session_expired', request.url));
-      
-      response.cookies.delete('next-auth.session-token');
-      response.cookies.delete('next-auth.csrf-token');
-      response.cookies.delete('next-auth.callback-url');
-      
-      return response;
-    }
-    
-    if ((path.startsWith('/api/') || path.startsWith('/stream/')) && token.backendToken) {
-      const requestHeaders = new Headers(request.headers);
-      requestHeaders.set('Authorization', `Bearer ${token.backendToken}`);
-      
-      return NextResponse.next({
-        request: {
-          headers: requestHeaders,
-        },
-      });
+      return handleUnauthorized(request, fullPath);
     }
     
     return NextResponse.next();
-    
   } catch (error) {
-    return NextResponse.redirect(new URL('/?error=auth_error', request.url));
+    console.error('Middleware error:', error);
+    return handleAuthError(request, fullPath);
   }
 }
 
 export const config = {
   matcher: [
-    /*
-     * Match all request paths except for:
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     * - public folder
-     */
-    '/((?!_next/static|_next/image|favicon.ico|images/).+)',
+    '/((?!_next/static|_next/image|favicon.ico|.*\\.png$).*)',
   ],
 }; 

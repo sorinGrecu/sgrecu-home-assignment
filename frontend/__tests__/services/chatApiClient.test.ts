@@ -1,10 +1,7 @@
 import {chatApiClient} from '@/app/components/chat/chatApiClient';
-import {connectToEventStream} from '@/lib/services/sseClient';
 import {BACKEND_URL} from "@/lib/config";
 
-jest.mock('@/lib/services/sseClient', () => ({
-    connectToEventStream: jest.fn(),
-}));
+global.fetch = jest.fn();
 
 const originalIsClient = global.window !== undefined;
 let mockIsClient = originalIsClient;
@@ -30,39 +27,28 @@ jest.mock('@/app/components/chat/chatApiClient', () => {
 
 describe('chatApiClient', () => {
     beforeEach(() => {
-        mockIsClient = originalIsClient;
+        jest.clearAllMocks();
+        (global.fetch as jest.Mock).mockClear();
     });
 
     afterEach(() => {
-        jest.clearAllMocks();
+        mockIsClient = originalIsClient;
     });
 
-    it('should resolve with conversation ID when called on server-side', async () => {
+    it('should return existing conversation ID when not in client environment', async () => {
         mockIsClient = false;
 
+        const message = 'Hello, AI';
         const onChunk = jest.fn();
-        const existingConversationId = 'existing-convo-123';
+        const existingConversationId = 'convo-123';
 
-        const result = await chatApiClient.fetchStreamingResponse('Hello', onChunk, existingConversationId);
+        const result = await chatApiClient.fetchStreamingResponse(message, onChunk, existingConversationId);
 
         expect(result).toBe(existingConversationId);
         expect(onChunk).not.toHaveBeenCalled();
-        expect(connectToEventStream).not.toHaveBeenCalled();
     });
 
-    it('should resolve with empty string when called on server-side without conversation ID', async () => {
-        mockIsClient = false;
-
-        const onChunk = jest.fn();
-
-        const result = await chatApiClient.fetchStreamingResponse('Hello', onChunk);
-
-        expect(result).toBe('');
-        expect(onChunk).not.toHaveBeenCalled();
-        expect(connectToEventStream).not.toHaveBeenCalled();
-    });
-
-    it('should connect to event stream with correct parameters', async () => {
+    it('should make POST request with correct parameters', async () => {
         mockIsClient = true;
 
         const message = 'Hello, AI';
@@ -70,46 +56,101 @@ describe('chatApiClient', () => {
         const existingConversationId = 'convo-123';
         const session = {backendToken: 'token-123'};
 
-        (connectToEventStream as jest.Mock).mockImplementation((url, options) => {
-            options.onComplete();
+        const mockResponse = {
+            ok: true, body: {
+                getReader: () => ({
+                    read: jest.fn()
+                        .mockResolvedValueOnce({
+                            done: false,
+                            value: new TextEncoder().encode('data: {"conversationId":"convo-123","content":"Hello"}\n\n')
+                        })
+                        .mockResolvedValueOnce({
+                            done: true, value: undefined
+                        })
+                })
+            }
+        };
+
+        (global.fetch as jest.Mock).mockResolvedValue(mockResponse);
+
+        await chatApiClient.fetchStreamingResponse(message, onChunk, existingConversationId, session as never);
+
+        expect(global.fetch).toHaveBeenCalledWith(`${BACKEND_URL}/api/chat/stream`, {
+            method: 'POST', headers: {
+                'Content-Type': 'application/json', 'Authorization': `Bearer ${session.backendToken}`
+            }, body: JSON.stringify({
+                message, conversationId: existingConversationId
+            }), credentials: 'include'
         });
-
-        await chatApiClient.fetchStreamingResponse(message, onChunk, existingConversationId, session as any);
-
-        expect(connectToEventStream).toHaveBeenCalled();
-
-        const urlArg = (connectToEventStream as jest.Mock).mock.calls[0][0];
-        expect(urlArg).toContain(`${BACKEND_URL}/api/chat/stream`);
-        expect(urlArg).toContain(`message=${encodeURIComponent(message).replace(/%20/g, '+')}`);
-        expect(urlArg).toContain(`conversationId=${existingConversationId}`);
-
-        const optionsArg = (connectToEventStream as jest.Mock).mock.calls[0][1];
-        expect(optionsArg.headers).toEqual({Authorization: `Bearer ${session.backendToken}`});
-        expect(optionsArg.timeoutMs).toBe(30000);
     });
 
-    it('should process stream chunks correctly', async () => {
+    it('should make POST request without conversationId when not provided', async () => {
         mockIsClient = true;
 
         const message = 'Hello, AI';
         const onChunk = jest.fn();
-        let capturedChunkHandler: (data: any) => void;
+        const session = {backendToken: 'token-123'};
 
-        (connectToEventStream as jest.Mock).mockImplementation((url, options) => {
-            capturedChunkHandler = options.onChunk;
+        const mockResponse = {
+            ok: true, body: {
+                getReader: () => ({
+                    read: jest.fn()
+                        .mockResolvedValueOnce({
+                            done: false,
+                            value: new TextEncoder().encode('data: {"conversationId":"new-convo","content":"Hello"}\n\n')
+                        })
+                        .mockResolvedValueOnce({
+                            done: true, value: undefined
+                        })
+                })
+            }
+        };
+
+        (global.fetch as jest.Mock).mockResolvedValue(mockResponse);
+
+        await chatApiClient.fetchStreamingResponse(message, onChunk, undefined, session as never);
+
+        expect(global.fetch).toHaveBeenCalledWith(`${BACKEND_URL}/api/chat/stream`, {
+            method: 'POST', headers: {
+                'Content-Type': 'application/json', 'Authorization': `Bearer ${session.backendToken}`
+            }, body: JSON.stringify({
+                message
+            }), credentials: 'include'
         });
+    });
 
-        const promise = chatApiClient.fetchStreamingResponse(message, onChunk);
+    it('should process SSE stream chunks correctly', async () => {
+        mockIsClient = true;
 
-        capturedChunkHandler!({content: '<think>', conversationId: 'convo-123'});
-        capturedChunkHandler!({content: 'thinking content', conversationId: 'convo-123'});
-        capturedChunkHandler!({content: '</think>', conversationId: 'convo-123'});
-        capturedChunkHandler!({content: 'Hello there!', conversationId: 'convo-123'});
-        capturedChunkHandler!({content: '\n\n', conversationId: 'convo-123'});
-        capturedChunkHandler!({content: 'How can I help?', conversationId: 'convo-123'});
+        const message = 'Hello, AI';
+        const onChunk = jest.fn();
 
-        (connectToEventStream as jest.Mock).mock.calls[0][1].onComplete();
-        const result = await promise;
+        const sseData = ['data: {"content":"<think>","conversationId":"convo-123"}\n\n', 'data: {"content":"thinking content","conversationId":"convo-123"}\n\n', 'data: {"content":"</think>","conversationId":"convo-123"}\n\n', 'data: {"content":"Hello there!","conversationId":"convo-123"}\n\n', 'data: {"content":"\\n\\n","conversationId":"convo-123"}\n\n', 'data: {"content":"How can I help?","conversationId":"convo-123"}\n\n'];
+
+        const mockResponse = {
+            ok: true, body: {
+                getReader: () => {
+                    let index = 0;
+                    return {
+                        read: jest.fn().mockImplementation(() => {
+                            if (index < sseData.length) {
+                                return Promise.resolve({
+                                    done: false, value: new TextEncoder().encode(sseData[index++])
+                                });
+                            } else {
+                                return Promise.resolve({
+                                    done: true, value: undefined
+                                });
+                            }
+                        })
+                    };
+                }
+            }
+        };
+
+        (global.fetch as jest.Mock).mockResolvedValue(mockResponse);
+
+        const result = await chatApiClient.fetchStreamingResponse(message, onChunk);
 
         expect(onChunk).toHaveBeenCalledTimes(2);
         expect(onChunk).toHaveBeenCalledWith('Hello there!', 'convo-123');
@@ -123,27 +164,25 @@ describe('chatApiClient', () => {
         const message = 'Hello, AI';
         const onChunk = jest.fn();
 
-        (connectToEventStream as jest.Mock).mockImplementation((url, options) => {
-            options.onError(new Error('Error: 401 Unauthorized'));
-        });
+        (global.fetch as jest.Mock).mockRejectedValue(new Error('Error: 401 Unauthorized'));
 
         await expect(chatApiClient.fetchStreamingResponse(message, onChunk))
             .rejects.toThrow('Error: 401 Unauthorized');
     });
 
-    it('should resolve the promise for non-auth errors', async () => {
+    it('should handle non-ok response status', async () => {
         mockIsClient = true;
 
         const message = 'Hello, AI';
         const onChunk = jest.fn();
-        const conversationId = 'convo-123';
 
-        (connectToEventStream as jest.Mock).mockImplementation((url, options) => {
-            options.onChunk({content: 'Some content', conversationId});
-            options.onError(new Error('Network error'));
-        });
+        const mockResponse = {
+            ok: false, status: 500
+        };
 
-        const result = await chatApiClient.fetchStreamingResponse(message, onChunk);
-        expect(result).toBe(conversationId);
+        (global.fetch as jest.Mock).mockResolvedValue(mockResponse);
+
+        await expect(chatApiClient.fetchStreamingResponse(message, onChunk))
+            .rejects.toThrow('Stream failed: 500');
     });
 }); 

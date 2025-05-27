@@ -14,7 +14,7 @@ React-based web client for the real-time chat app, built with **Next.js 15** and
 • TanStack React Query 5 – data-fetching / caching  
 • Zustand – local UI state  
 • Axios – REST client with typed wrappers  
-• Server-Sent Events (SSE) for real-time chat streaming  
+• Server-Sent Events (SSE) for real-time chat streaming via POST requests  
 • Jest + Testing-Library for unit / integration tests  
 • ESLint (Next.js shareable config) + SWC for compile-time checks
 
@@ -83,7 +83,18 @@ frontend/
 
 ## 💬 Real-time chat
 
-`/lib/services/sseClient.ts` opens a **Server-Sent Events** connection to `/api/chat/stream`. Chunks are forwarded to the UI (`useChat` hook) enabling token-by-token streaming similar to ChatGPT.
+The chat system uses **POST requests with Server-Sent Events (SSE)** for real-time streaming:
+
+- **`/app/components/chat/chatApiClient.ts`** handles POST requests to `/api/chat/stream` with JSON request bodies
+- **SSE parsing** is done directly using `fetch()` and `ReadableStream` for better control over the request/response cycle
+- **Streaming chunks** are forwarded to the UI via the `useChat` hook, enabling token-by-token streaming similar to ChatGPT
+- **Authentication** is handled via JWT tokens in the `Authorization` header
+
+**Benefits of POST-based approach:**
+- No URL length limitations for large messages
+- Better security (no sensitive data in URLs/logs)
+- Structured request bodies with validation
+- RESTful API design
 
 ---
 

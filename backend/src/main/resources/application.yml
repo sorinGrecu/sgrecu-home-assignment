@@ -50,8 +50,8 @@ app:
     max-message-length: ${JBHA_CHAT_MAX_MESSAGE_LENGTH:30000}
   # Server configuration
   server:
-    max-initial-line-length: ${JBHA_HTTP_MAX_LINE_LENGTH:32768}
-    max-header-size: ${JBHA_HTTP_MAX_HEADER_SIZE:32768}
+    max-initial-line-length: ${JBHA_HTTP_MAX_LINE_LENGTH:8192}
+    max-header-size: ${JBHA_HTTP_MAX_HEADER_SIZE:16384}
   # CORS configuration
   cors:
     allowed-origins: ${JBHA_ALLOWED_ORIGINS}

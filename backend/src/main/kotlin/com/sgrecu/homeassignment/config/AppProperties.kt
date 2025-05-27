@@ -24,5 +24,5 @@ data class ChatProperties(
 )
 
 data class ServerProperties(
-    val maxInitialLineLength: Int = 16384, val maxHeaderSize: Int = 16384
+    val maxInitialLineLength: Int = 8192, val maxHeaderSize: Int = 16384
 )

@@ -36,6 +36,7 @@ class ChatControllerTest {
     fun `streamChat with message and no conversationId should return SSE stream`() {
         // Given
         val userQuery = "Hello AI"
+        val request = ChatStreamRequest(message = userQuery, conversationId = null)
         val conversationUuid = UUID.randomUUID()
 
         val chunk1 = ChatResponseChunk(conversationId = conversationUuid.toString(), content = "AI says:")
@@ -47,7 +48,7 @@ class ChatControllerTest {
             .thenReturn(Flux.just(sseEvent1, sseEvent2))
 
         // When
-        val resultFlux = chatController.streamChat(userQuery, null, mockUserPrincipal)
+        val resultFlux = chatController.streamChat(request, mockUserPrincipal)
 
         // Then
         StepVerifier.create(resultFlux).expectNext(sseEvent1).expectNext(sseEvent2).verifyComplete()
@@ -59,6 +60,7 @@ class ChatControllerTest {
         // Given
         val userQuery = "Tell me more"
         val conversationId = UUID.randomUUID().toString()
+        val request = ChatStreamRequest(message = userQuery, conversationId = conversationId)
 
         val chunk1 = ChatResponseChunk(conversationId = conversationId, content = "Okay,")
         val chunk2 = ChatResponseChunk(conversationId = conversationId, content = " what do you want to know?")
@@ -69,7 +71,7 @@ class ChatControllerTest {
             .thenReturn(Flux.just(sseEvent1, sseEvent2))
 
         // When
-        val resultFlux = chatController.streamChat(userQuery, conversationId, mockUserPrincipal)
+        val resultFlux = chatController.streamChat(request, mockUserPrincipal)
 
         // Then
         StepVerifier.create(resultFlux).expectNext(sseEvent1).expectNext(sseEvent2).verifyComplete()
@@ -82,11 +84,12 @@ class ChatControllerTest {
         // Given
         val userQuery = "Anything new?"
         val conversationId = UUID.randomUUID().toString()
+        val request = ChatStreamRequest(message = userQuery, conversationId = conversationId)
 
         Mockito.`when`(chatCoordinator.streamChat(userQuery, conversationId, mockUserId)).thenReturn(Flux.empty())
 
         // When
-        val resultFlux = chatController.streamChat(userQuery, conversationId, mockUserPrincipal)
+        val resultFlux = chatController.streamChat(request, mockUserPrincipal)
 
         // Then
         StepVerifier.create(resultFlux).verifyComplete()
@@ -98,6 +101,7 @@ class ChatControllerTest {
     fun `streamChat when coordinator returns an error event should propagate it`() {
         // Given
         val userQuery = "This might fail"
+        val request = ChatStreamRequest(message = userQuery, conversationId = null)
         val conversationId = UUID.randomUUID()
         val errorMessage = "A critical error occurred in AI"
 
@@ -106,10 +110,46 @@ class ChatControllerTest {
         Mockito.`when`(chatCoordinator.streamChat(userQuery, null, mockUserId)).thenReturn(Flux.just(errorSseEvent))
 
         // When
-        val resultFlux = chatController.streamChat(userQuery, null, mockUserPrincipal)
+        val resultFlux = chatController.streamChat(request, mockUserPrincipal)
 
         // Then
         StepVerifier.create(resultFlux).expectNext(errorSseEvent).verifyComplete()
+
+        Mockito.verify(chatCoordinator).streamChat(userQuery, null, mockUserId)
+    }
+
+    @Test
+    fun `streamChat with empty message should delegate to coordinator`() {
+        // Given
+        val userQuery = ""
+        val request = ChatStreamRequest(message = userQuery, conversationId = null)
+
+        Mockito.`when`(chatCoordinator.streamChat(userQuery, null, mockUserId))
+            .thenReturn(Flux.error(IllegalArgumentException("Message cannot be empty")))
+
+        // When
+        val resultFlux = chatController.streamChat(request, mockUserPrincipal)
+
+        // Then
+        StepVerifier.create(resultFlux).expectError(IllegalArgumentException::class.java).verify()
+
+        Mockito.verify(chatCoordinator).streamChat(userQuery, null, mockUserId)
+    }
+
+    @Test
+    fun `streamChat with very long message should delegate to coordinator`() {
+        // Given
+        val userQuery = "A".repeat(50000) // Very long message
+        val request = ChatStreamRequest(message = userQuery, conversationId = null)
+
+        Mockito.`when`(chatCoordinator.streamChat(userQuery, null, mockUserId))
+            .thenReturn(Flux.error(IllegalArgumentException("Message length exceeds maximum allowed length")))
+
+        // When
+        val resultFlux = chatController.streamChat(request, mockUserPrincipal)
+
+        // Then
+        StepVerifier.create(resultFlux).expectError(IllegalArgumentException::class.java).verify()
 
         Mockito.verify(chatCoordinator).streamChat(userQuery, null, mockUserId)
     }
