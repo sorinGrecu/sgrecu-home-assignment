@@ -18,9 +18,8 @@ class SpringAIStreamProvider(private val chatClient: ChatClient.Builder) : AIStr
      * @param userQuery The user's query to send to the model
      * @return A flux of response content chunks
      */
-    override fun createResponseStream(userQuery: String): Flux<String> {
-        return chatClient.build().prompt().user(userQuery).stream().content()
+    override fun createResponseStream(userQuery: String): Flux<String> =
+        chatClient.build().prompt().user(userQuery).stream().content()
             .doOnSubscribe { logger.debug { "AI stream started for query: length=${userQuery.length}" } }
             .doOnComplete { logger.debug { "AI stream completed" } }.share()
-    }
-} 
+}

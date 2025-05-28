@@ -17,18 +17,12 @@ private val logger = KotlinLogging.logger {}
  */
 fun mapToServerEvents(
     contentFlux: Flux<String>, conversationId: UUID
-): Flux<ServerSentEvent<ChatResponseChunk>> {
-    var chunkCount = 0
-
-    return contentFlux.map { token ->
-        ServerSentEvent.builder<ChatResponseChunk>().id((++chunkCount).toString()).event("message")
-            .data(ChatResponseChunk(conversationId.toString(), token)).build()
-    }.onErrorResume { error ->
-        logger.error(
-            "SSE streaming error: conversation={}, error={}", conversationId, error.message, error
-        )
-        Flux.just(createErrorEvent(conversationId, error.message ?: "Unknown error"))
-    }
+): Flux<ServerSentEvent<ChatResponseChunk>> = contentFlux.index().map { t ->
+    ServerSentEvent.builder<ChatResponseChunk>().id((t.t1 + 1).toString()).event("message")
+        .data(ChatResponseChunk(conversationId.toString(), t.t2)).build()
+}.onErrorResume { e ->
+    logger.error("SSE streaming error: conversation={}, error={}", conversationId, e.message, e)
+    Flux.just(createErrorEvent(conversationId, e.message ?: "Unknown error"))
 }
 
 /**

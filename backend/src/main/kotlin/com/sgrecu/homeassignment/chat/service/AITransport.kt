@@ -5,7 +5,6 @@ import com.sgrecu.homeassignment.monitoring.AIInfoEndpoint
 import mu.KotlinLogging
 import org.springframework.stereotype.Component
 import reactor.core.publisher.Flux
-import reactor.core.publisher.Mono
 import reactor.core.scheduler.Schedulers
 import java.util.*
 
@@ -29,25 +28,20 @@ class AITransport(
      * @return A Flux of filtered content strings from the AI model
      * @throws AIResponseFailedException if the AI service connection fails
      */
-    fun createFilteredResponseStream(userQuery: String, conversationId: UUID): Flux<String> {
-        return Flux.defer {
-            Mono.fromRunnable<Void> { aiInfoEndpoint.incrementActiveRequests() }.subscribeOn(Schedulers.parallel())
-                .then(Mono.defer {
-                    try {
-                        val rawResponseStream = aiStreamProvider.createResponseStream(userQuery)
-                        Mono.just(contentFilter.filterContent(rawResponseStream))
-                    } catch (ex: Exception) {
-                        logger.error { "AI response setup failed: ${ex.message}" }
-                        val errorMessage = "Failed to connect to AI service: ${ex.message ?: "Unknown error"}"
-                        Mono.error(AIResponseFailedException(errorMessage, ex))
-                    }
-                }).flatMapMany { it }.doOnError { error ->
-                    logger.error {
-                        "AI content filtering error: conversation=$conversationId, error=${error.message}"
-                    }
-                }.doFinally {
-                    aiInfoEndpoint.decrementActiveRequests()
-                }
+    fun createFilteredResponseStream(
+        userQuery: String, conversationId: UUID
+    ): Flux<String> = Flux.defer {
+        aiStreamProvider.createResponseStream(userQuery).transform(contentFilter::filterContent)
+    }.onErrorMap { ex ->
+        logger.error("AI content filtering error: conversation={}, error={}", conversationId, ex.message)
+        when (ex) {
+            is IllegalArgumentException -> ex
+            else -> {
+                logger.error("AI response setup failed: {}", ex.message)
+                AIResponseFailedException("Failed to connect to AI service: ${ex.message ?: "Unknown error"}", ex)
+            }
         }
-    }
-} 
+    }.subscribeOn(Schedulers.parallel()).doOnSubscribe { aiInfoEndpoint.incrementActiveRequests() }
+        .doFinally { aiInfoEndpoint.decrementActiveRequests() }
+
+}

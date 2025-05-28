@@ -42,33 +42,22 @@ class ChatCoordinator(
     @Transactional
     fun streamChat(
         userQuery: String, conversationId: String?, userId: String
-    ): Flux<ServerSentEvent<ChatResponseChunk>> {
-        return Mono.defer {
-            validateMessage(userQuery)
-            val parsedConversationId = parseUuid(conversationId)
-            logger.debug {
-                "Chat request: conversationId=$parsedConversationId, userId='$userId', query length=${userQuery.length}"
-            }
-            val title = userQuery.take(30).let { if (userQuery.length > 30) "$it..." else it }
-            Mono.just(Triple(parsedConversationId, title, userQuery))
-        }.flatMapMany { (convId, ttl, query) ->
-            findOrCreateConversation(convId, userId, ttl, query).flatMapMany { conversationId ->
-                processAIResponse(
-                    conversationId, query
-                )
-            }
-        }.doOnError { error ->
-            logger.error { "Chat stream error: ${error.message}" }
+    ): Flux<ServerSentEvent<ChatResponseChunk>> = Flux.defer {
+        validateMessage(userQuery)
+        val convId = parseUuid(conversationId)
+        val title = if (userQuery.length > 30) "${userQuery.take(30)}..." else userQuery
+        findOrCreateConversation(convId, userId, title, userQuery).flatMapMany { id ->
+            processAIResponse(id, userQuery)
         }
-    }
+    }.doOnError { logger.error("Chat stream error: ${it.message}") }
 
     /**
      * Finds or creates a conversation and saves the user message.
      */
     private fun findOrCreateConversation(
         conversationId: UUID?, userId: String, title: String, userQuery: String
-    ): Mono<UUID> {
-        return conversationService.findOrCreateConversation(conversationId, userId, title).flatMap { conversation ->
+    ): Mono<UUID> =
+        conversationService.findOrCreateConversation(conversationId, userId, title).flatMap { conversation ->
             val id = conversation.id ?: return@flatMap Mono.error(
                 IllegalStateException("Conversation has no ID")
             )
@@ -80,38 +69,40 @@ class ChatCoordinator(
                 else -> IllegalStateException("Conversation preparation failed: ${error.message}", error)
             }
         }
-    }
+
 
     /**
      * Processes the AI response, coordinating between the services.
      */
     private fun processAIResponse(
         conversationId: UUID, userQuery: String
-    ): Flux<ServerSentEvent<ChatResponseChunk>> {
-        try {
-            val aiResponseStream = aiTransport.createFilteredResponseStream(userQuery, conversationId)
-            val sharedResponseStream = aiResponseStream.publish().refCount(1)
-            val clientStream = mapToServerEvents(sharedResponseStream, conversationId)
+    ): Flux<ServerSentEvent<ChatResponseChunk>> = Flux.defer {
+        val aiResponseStream = aiTransport.createFilteredResponseStream(userQuery, conversationId)
+        val sharedResponseStream = aiResponseStream.publish().refCount(1)
+        val clientStream = mapToServerEvents(sharedResponseStream, conversationId)
+        val persistenceStream =
+            messagePersister.saveMessage(sharedResponseStream, conversationId, MessageRoleEnum.ASSISTANT)
+                .doOnError { error ->
+                    logger.error { "Message persistence failed: ${error.message}" }
+                }.onErrorComplete().thenMany(Flux.empty<ServerSentEvent<ChatResponseChunk>>())
 
-            val persistenceStream =
-                messagePersister.saveMessage(sharedResponseStream, conversationId, MessageRoleEnum.ASSISTANT)
-                    .doOnError { error ->
-                        logger.error { "Message persistence failed: ${error.message}" }
-                    }.onErrorComplete().thenMany(Flux.empty<ServerSentEvent<ChatResponseChunk>>())
-
-            return Flux.merge(clientStream, persistenceStream)
-        } catch (ex: Exception) {
-            logger.error { "AI response processing failed: ${ex.message}" }
-            val errorMessage = "Failed to process AI response: ${ex.message ?: "Unknown error"}"
-            val errorEvent = createErrorEvent(conversationId, errorMessage)
-
-            if (ex is AIResponseFailedException) {
-                return Flux.just(errorEvent)
+        Flux.merge(clientStream, persistenceStream)
+    }.onErrorResume { ex ->
+        when (ex) {
+            is AIResponseFailedException -> {
+                logger.error { "AI response failed: ${ex.message}" }
+                Flux.just(createErrorEvent(conversationId, ex.message))
             }
 
-            return Flux.just(errorEvent).concatWith(Flux.error(ex))
+            else -> {
+                logger.error { "AI response processing failed: ${ex.message}" }
+                val errorMessage = "Failed to process AI response: ${ex.message ?: "Unknown error"}"
+                val errorEvent = createErrorEvent(conversationId, errorMessage)
+                Flux.just(errorEvent).concatWith(Flux.error(ex))
+            }
         }
     }
+
 
     /**
      * Validates the user message for length.

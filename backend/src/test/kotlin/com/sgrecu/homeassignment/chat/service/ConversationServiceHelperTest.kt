@@ -77,7 +77,7 @@ class ConversationServiceHelperTest {
     }
 
     @Test
-    fun `handleMessageSaveError returns specific error for foreign key violations`() {
+    fun `handleMessageSaveError propagates DataIntegrityViolationException`() {
         // Given
         val exception = DataIntegrityViolationException("FOREIGN KEY (CONVERSATION_ID) REFERENCES CONVERSATION")
 
@@ -89,7 +89,7 @@ class ConversationServiceHelperTest {
             ).apply { isAccessible = true }.invoke(conversationService, exception, conversationId)
 
         // Then
-        StepVerifier.create(result as Mono<*>).expectError(IllegalStateException::class.java).verify()
+        StepVerifier.create(result as Mono<*>).expectError(DataIntegrityViolationException::class.java).verify()
     }
 
     @Test
@@ -144,7 +144,7 @@ class ConversationServiceHelperTest {
     }
 
     @Test
-    fun `handleMessageSaveError handles specific database error types`() {
+    fun `handleMessageSaveError propagates DataIntegrityViolationException for unique constraints`() {
         // Given
         val uniqueConstraintException = DataIntegrityViolationException("Unique constraint violation")
 
@@ -156,6 +156,6 @@ class ConversationServiceHelperTest {
             ).apply { isAccessible = true }.invoke(conversationService, uniqueConstraintException, conversationId)
 
         // Then
-        StepVerifier.create(result as Mono<*>).expectErrorMatches { it is RuntimeException }.verify()
+        StepVerifier.create(result as Mono<*>).expectError(DataIntegrityViolationException::class.java).verify()
     }
 } 

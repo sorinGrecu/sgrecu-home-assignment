@@ -8,7 +8,6 @@ import com.sgrecu.homeassignment.chat.model.MessageRoleEnum
 import com.sgrecu.homeassignment.chat.repository.ConversationRepository
 import com.sgrecu.homeassignment.chat.repository.MessageRepository
 import mu.KotlinLogging
-import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.dao.TransientDataAccessResourceException
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -38,11 +37,11 @@ class ConversationService(
      * @param title Optional title for the conversation
      * @return A Mono emitting the created conversation
      */
-    fun createConversation(userId: String, title: String? = null): Mono<Conversation> {
+    fun createConversation(userId: String, title: String): Mono<Conversation> {
         val now = now()
         return conversationRepository.save(
             Conversation(
-                userId = userId, title = title, createdAt = now, updatedAt = now
+                userId = userId, title = title, createdAt = now, updatedAt = now()
             )
         )
     }
@@ -53,29 +52,25 @@ class ConversationService(
      * @param userId The ID of the user
      * @return A Flux emitting the user's conversations
      */
-    fun getUserConversations(userId: String): Flux<Conversation> {
-        return conversationRepository.findByUserIdOrderByUpdatedAtDesc(userId)
-    }
+    fun getUserConversations(userId: String): Flux<Conversation> =
+        conversationRepository.findByUserIdOrderByUpdatedAtDesc(userId)
 
     /**
-     * Verifies a user has access to a conversation and returns the conversation.
+     * Finds a conversation by ID and verifies the user has access to it.
      * Throws an exception if the conversation doesn't exist or the user is not authorized.
      *
-     * @param conversationId The ID of the conversation to verify
+     * @param conversationId The ID of the conversation to find
      * @param userId The ID of the user requesting access
-     * @return A Mono emitting the conversation if access is authorized
+     * @return A Mono emitting the conversation if found and access is authorized
      * @throws ConversationNotFoundException if the conversation doesn't exist
      * @throws UnauthorizedConversationAccessException if the user is not the owner
      */
-    private fun verifyAccess(conversationId: UUID, userId: String): Mono<Conversation> {
-        return conversationRepository.findById(conversationId).flatMap { conversation ->
-            if (conversation.userId == userId) {
-                Mono.just(conversation)
-            } else {
-                Mono.error(UnauthorizedConversationAccessException(conversationId.toString(), userId))
-            }
-        }.switchIfEmpty(Mono.error(ConversationNotFoundException(conversationId.toString())))
-    }
+    private fun findConversationWithAccess(conversationId: UUID, userId: String): Mono<Conversation> =
+        conversationRepository.findById(conversationId).switchIfEmpty(Mono.defer {
+            Mono.error(ConversationNotFoundException(conversationId.toString()))
+        }).filter { it.userId == userId }.switchIfEmpty(Mono.defer {
+            Mono.error(UnauthorizedConversationAccessException(conversationId.toString(), userId))
+        })
 
     /**
      * Gets a conversation by ID, verifying the user has access.
@@ -87,7 +82,7 @@ class ConversationService(
      * @throws UnauthorizedConversationAccessException if the user is not the owner
      */
     fun getConversation(conversationId: UUID, userId: String): Mono<Conversation> {
-        return verifyAccess(conversationId, userId)
+        return findConversationWithAccess(conversationId, userId)
     }
 
     /**
@@ -101,7 +96,7 @@ class ConversationService(
      * @throws UnauthorizedConversationAccessException if the user is not the owner
      */
     fun updateConversationTitle(conversationId: UUID, title: String, userId: String): Mono<Conversation> {
-        return verifyAccess(conversationId, userId).flatMap { conversation ->
+        return findConversationWithAccess(conversationId, userId).flatMap { conversation ->
             val updated = conversation.copy(
                 title = title, updatedAt = now()
             )
@@ -109,29 +104,18 @@ class ConversationService(
         }
     }
 
-    /**
-     * Adds a message to a conversation and updates the conversation's timestamp.
-     * Note: This method does not verify user access and should only be used internally
-     * or after access verification.
-     *
-     * @param conversationId The ID of the conversation
-     * @param role The role of the message
-     * @param content The message content
-     * @return A Mono emitting the created message
-     */
     @Transactional
-    internal fun addMessageInternal(conversationId: UUID, role: MessageRoleEnum, content: String): Mono<Message> {
+    internal fun addMessageInternal(
+        conversationId: UUID, role: MessageRoleEnum, content: String
+    ): Mono<Message> {
         val now = now()
-
         val message = Message(
             conversationId = conversationId, role = role, content = content, createdAt = now
         )
 
-        return conversationRepository.findById(conversationId).flatMap { conversation ->
-            conversationRepository.save(conversation.copy(updatedAt = now))
-                .onErrorResume { handleConversationUpdateError(it, conversationId) }
-        }.onErrorResume { handleConversationUpdateError(it, conversationId) }.then(messageRepository.save(message))
-            .onErrorResume { handleMessageSaveError(it, conversationId) }
+        return conversationRepository.findById(conversationId).map { it.copy(updatedAt = now) }
+            .flatMap(conversationRepository::save).onErrorResume { handleConversationUpdateError(it, conversationId) }
+            .then(messageRepository.save(message)).onErrorResume { handleMessageSaveError(it, conversationId) }
     }
 
     /**
@@ -150,15 +134,8 @@ class ConversationService(
      * Handles database exceptions during message saves.
      */
     private fun handleMessageSaveError(error: Throwable, conversationId: UUID): Mono<Message> {
-        return if (error is DataIntegrityViolationException && error.message?.contains("FOREIGN KEY") == true && error.message?.contains(
-                "CONVERSATION_ID"
-            ) == true
-        ) {
-            logger.warn { "Foreign key violation: conversation_id=$conversationId" }
-            Mono.error(IllegalStateException("Conversation not found or was deleted"))
-        } else {
-            Mono.error(error)
-        }
+        logger.error(error) { "Failed to save message for conversation: conversationId=$conversationId" }
+        return Mono.error(error)
     }
 
     /**
@@ -169,9 +146,9 @@ class ConversationService(
      * @param conversationId The ID of the conversation
      * @return A Flux emitting the conversation's messages
      */
-    internal fun findMessagesByConversationId(conversationId: UUID): Flux<Message> {
-        return messageRepository.findByConversationIdOrderByCreatedAtAsc(conversationId)
-    }
+    internal fun findMessagesByConversationId(conversationId: UUID): Flux<Message> =
+        messageRepository.findByConversationIdOrderByCreatedAtAsc(conversationId)
+
 
     /**
      * Gets all messages for a conversation in chronological order, verifying the user has access.
@@ -182,9 +159,8 @@ class ConversationService(
      * @throws ConversationNotFoundException if the conversation doesn't exist
      * @throws UnauthorizedConversationAccessException if the user is not the owner
      */
-    fun getConversationMessages(conversationId: UUID, userId: String): Flux<Message> {
-        return verifyAccess(conversationId, userId).flatMapMany { findMessagesByConversationId(conversationId) }
-    }
+    fun getConversationMessages(conversationId: UUID, userId: String): Flux<Message> =
+        findConversationWithAccess(conversationId, userId).flatMapMany { findMessagesByConversationId(conversationId) }
 
     /**
      * Deletes a conversation and all its messages.
@@ -195,10 +171,9 @@ class ConversationService(
      * @return A Mono that completes when the operation is done
      */
     @Transactional
-    internal fun deleteConversationInternal(conversationId: UUID): Mono<Void> {
-        return messageRepository.deleteAllByConversationId(conversationId)
+    internal fun deleteConversationInternal(conversationId: UUID): Mono<Void> =
+        messageRepository.deleteAllByConversationId(conversationId)
             .then(conversationRepository.deleteById(conversationId))
-    }
 
     /**
      * Deletes a conversation and all its messages, verifying the user has access.
@@ -210,9 +185,9 @@ class ConversationService(
      * @throws UnauthorizedConversationAccessException if the user is not the owner
      */
     @Transactional
-    fun deleteConversation(conversationId: UUID, userId: String): Mono<Void> {
-        return verifyAccess(conversationId, userId).flatMap { deleteConversationInternal(conversationId) }
-    }
+    fun deleteConversation(conversationId: UUID, userId: String): Mono<Void> =
+        findConversationWithAccess(conversationId, userId).flatMap { deleteConversationInternal(conversationId) }
+
 
     /**
      * Finds an existing conversation by ID or creates a new one if not found.
@@ -223,26 +198,23 @@ class ConversationService(
      * @return A Mono emitting the existing or newly created conversation
      */
     @Transactional
-    fun findOrCreateConversation(conversationId: UUID?, userId: String, title: String? = null): Mono<Conversation> {
+    fun findOrCreateConversation(conversationId: UUID?, userId: String, title: String): Mono<Conversation> =
         if (conversationId == null) {
             logger.debug { "Creating new conversation: user=$userId" }
-            return createConversation(userId, title)
+            createConversation(userId, title)
+        } else {
+            conversationRepository.findById(conversationId)
+                .doOnNext { logger.debug { "Found conversation: id=$conversationId, user=$userId" } }
+                .filter { conversation ->
+                    val authorised = conversation.userId == userId
+                    if (!authorised) logger.warn {
+                        "Unauthorized access attempt: conversation=$conversationId, owner=${conversation.userId}, requester=$userId"
+                    }
+                    authorised
+                }.switchIfEmpty(
+                    Mono.defer {
+                        logger.debug { "Conversation not found or unauthorized, creating new: id=$conversationId" }
+                        createConversation(userId, title)
+                    })
         }
-
-        return conversationRepository.findById(conversationId).flatMap { conversation ->
-            if (conversation.userId == userId) {
-                logger.debug { "Found conversation: id=$conversationId, user=$userId" }
-                Mono.just(conversation)
-            } else {
-                logger.warn {
-                    "Unauthorized access attempt: conversation=$conversationId, owner=${conversation.userId}, requester=$userId"
-                }
-                createConversation(userId, title)
-            }
-        }.switchIfEmpty(
-            Mono.defer {
-                logger.debug { "Conversation not found, creating new: id=$conversationId" }
-                createConversation(userId, title)
-            })
-    }
-} 
+}

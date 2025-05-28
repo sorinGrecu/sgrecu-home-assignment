@@ -27,35 +27,23 @@ class EndOfStreamMessageSaveStrategy(
      * Saves message content after collecting all stream data.
      * Uses a streaming approach to reduce memory usage for large responses.
      */
-    override fun save(contents: Flux<String>, conversationId: UUID, role: MessageRoleEnum): Mono<Void> {
+    override fun save(
+        contents: Flux<String>, conversationId: UUID, role: MessageRoleEnum
+    ): Mono<Void> {
         logger.debug { "Starting collection for conversation $conversationId" }
 
-        val contentBuilder = StringBuilder()
-
-        return contentFilter.filterContent(contents).doOnNext { token ->
-            contentBuilder.append(token)
-        }.then(Mono.defer {
-            val fullContent = contentBuilder.toString()
-
-            if (fullContent.isEmpty()) {
-                logger.debug { "No content after filtering: conversation=$conversationId" }
-                return@defer Mono.empty<Void>()
-            }
-
-            logger.debug {
-                "Saving message: conversation=$conversationId, length=${fullContent.length}"
-            }
-
-            messageRepository.save(
-                Message(conversationId = conversationId, role = role, content = fullContent)
-            ).doOnSuccess { message ->
-                logger.debug { "Message saved: id=${message.id}, conversation=$conversationId" }
-            }.then()
-        }).doOnError { error ->
-            logger.error {
-                "Save failed: conversation=$conversationId, error=${error.message}"
-            }
-        }
+        return contentFilter.filterContent(contents).collect({ StringBuilder() }, StringBuilder::append)
+            .map(StringBuilder::toString).flatMap { body ->
+                if (body.isBlank()) {
+                    logger.debug { "No content after filtering: conversation=$conversationId" }
+                    Mono.empty()
+                } else {
+                    logger.debug { "Saving message: conversation=$conversationId, length=${body.length}" }
+                    messageRepository.save(Message(conversationId = conversationId, role = role, content = body))
+                        .doOnSuccess { logger.debug { "Message saved: id=${it.id}, conversation=$conversationId" } }
+                        .then()
+                }
+            }.doOnError { e -> logger.error { "Save failed: conversation=$conversationId, error=${e.message}" } }
     }
 
     /**

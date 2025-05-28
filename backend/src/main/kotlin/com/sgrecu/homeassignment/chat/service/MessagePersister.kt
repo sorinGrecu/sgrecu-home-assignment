@@ -30,11 +30,10 @@ class MessagePersister(
      */
     fun saveMessage(
         contentFlux: Flux<String>, conversationId: UUID, role: MessageRoleEnum
-    ): Mono<Void> {
-        return configuredMessageSaveStrategy.save(contentFlux, conversationId, role)
-            .publishOn(Schedulers.boundedElastic()).doOnError { error ->
+    ): Mono<Void> =
+        configuredMessageSaveStrategy.save(contentFlux, conversationId, role).publishOn(Schedulers.boundedElastic())
+            .doOnError { error ->
                 metricsService.recordMessagePersistenceFailure(conversationId, role, error)
-
                 logger.error(
                     "Message persistence failed: conversation={}, role={}, error={}",
                     conversationId,
@@ -43,5 +42,4 @@ class MessagePersister(
                     error
                 )
             }.onErrorComplete().then()
-    }
 } 

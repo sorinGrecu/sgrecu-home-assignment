@@ -306,7 +306,7 @@ class ConversationServiceTest {
     }
 
     @Test
-    fun `addMessageInternal handles DataIntegrityViolationException with foreign key error`() {
+    fun `addMessageInternal propagates DataIntegrityViolationException from message save`() {
         // Given
         val content = "Test message"
         val role = MessageRoleEnum.USER
@@ -318,9 +318,7 @@ class ConversationServiceTest {
 
         // When/Then
         StepVerifier.create(conversationService.addMessageInternal(conversationId, role, content))
-            .expectErrorMatches { error ->
-                error is IllegalStateException && error.message == "Conversation not found or was deleted"
-            }.verify()
+            .expectError(DataIntegrityViolationException::class.java).verify()
     }
 
     @Test
