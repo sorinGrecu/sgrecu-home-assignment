@@ -1,5 +1,5 @@
-import { BACKEND_URL } from "@/lib/config";
-import { Session } from "next-auth";
+import {BACKEND_URL} from "@/lib/config";
+import {Session} from "next-auth";
 
 // Configuration constants
 const API_BASE_URL = BACKEND_URL;
@@ -180,31 +180,28 @@ async function processSSEStream(
 /**
  * Make the HTTP request to the chat stream endpoint
  */
-async function makeStreamRequest(
-  message: string,
-  conversationId?: string,
-  session?: Session | null
-): Promise<Response> {
-  const url = `${API_BASE_URL}${API_STREAM_PATH}`;
-  const headers = buildRequestHeaders(session?.backendToken);
-  const body = buildRequestBody(message, conversationId);
-  
-  const response = await fetch(url, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(body),
-    credentials: CREDENTIALS_INCLUDE,
-  });
-  
-  if (!response.ok) {
-    throw new ChatApiError(
-      `Stream failed: ${response.status}`,
-      response.status,
-      response
-    );
-  }
-  
-  return response;
+async function makeStreamRequest(message: string, conversationId?: string, session?: Session | null): Promise<Response> {
+    const url = `${API_BASE_URL}${API_STREAM_PATH}`;
+    const headers = buildRequestHeaders(session?.backendToken);
+    const body = buildRequestBody(message, conversationId);
+
+    const response = await fetch(url, {
+        method: 'POST', headers, body: JSON.stringify(body), credentials: CREDENTIALS_INCLUDE,
+    });
+
+    if (!response.ok) {
+        let errorMessage = `Stream failed: ${response.status}`;
+
+        try {
+            const errorData = await response.json();
+            if (errorData?.message) errorMessage = errorData.message;
+        } catch {
+        }
+
+        throw new ChatApiError(errorMessage, response.status, response);
+    }
+
+    return response;
 }
 
 /**

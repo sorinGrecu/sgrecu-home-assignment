@@ -169,8 +169,16 @@ export function useChat({
                     updateConversationCache(currentSessionId, lastMessage.content, lastMessage.createdAt);
                 }
             }
-        }, onError: () => {
+        }, onError: (error) => {
             if (!isMountedRef.current) return;
+
+            let errorMessage = 'Error: Failed to get response. Please check the API endpoint configuration.';
+
+            if (error instanceof Error) {
+                if (error.message && error.message !== 'Unknown error occurred') {
+                    errorMessage = error.message.startsWith('Error:') ? error.message : `Error: ${error.message}`;
+                }
+            }
 
             setMessages(prev => {
                 const newMessages = [...prev];
@@ -178,8 +186,7 @@ export function useChat({
 
                 if (lastIndex >= 0 && newMessages[lastIndex].role === ROLE.ASSISTANT) {
                     newMessages[lastIndex] = {
-                        ...newMessages[lastIndex],
-                        content: 'Error: Failed to get response. Please check the API endpoint configuration.'
+                        ...newMessages[lastIndex], content: errorMessage
                     };
                 }
 

@@ -44,23 +44,23 @@ class JwtAuthenticationFilter(
         }
 
         return jwtAuthenticationConverter.convert(token).flatMap { auth ->
-                chain.filter(exchange).contextWrite(ReactiveSecurityContextHolder.withAuthentication(auth))
-            }.onErrorResume { error ->
-                logger.warn(
-                    "JWT authentication failed: path={}, method={}, remote={}, error={}",
-                    exchange.request.path.value(),
-                    exchange.request.method,
-                    exchange.request.remoteAddress?.address?.hostAddress ?: "unknown",
-                    error.message
-                )
-
-                val message = when (error) {
-                    is UsernameNotFoundException -> "User not found"
-                    else -> "Authentication failed"
+            chain.filter(exchange).contextWrite(ReactiveSecurityContextHolder.withAuthentication(auth))
+        }.onErrorResume { error ->
+            when (error) {
+                is UsernameNotFoundException, is SecurityException -> {
+                    logger.warn(
+                        "JWT authentication failed: path={}, method={}, remote={}, error={}",
+                        exchange.request.path.value(),
+                        exchange.request.method,
+                        exchange.request.remoteAddress?.address?.hostAddress ?: "unknown",
+                        error.message
+                    )
+                    Mono.error(ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication failed"))
                 }
 
-                Mono.error(ResponseStatusException(HttpStatus.UNAUTHORIZED, message))
+                else -> Mono.error(error)
             }
+        }
     }
 
     /**
